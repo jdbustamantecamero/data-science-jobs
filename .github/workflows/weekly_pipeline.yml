@@ -1,0 +1,33 @@
+name: Weekly Data Science Jobs Pipeline
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Monday 06:00 UTC
+  workflow_dispatch:       # Manual trigger
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        run: python -m pipeline.run_pipeline
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY:    ${{ secrets.SUPABASE_ANON_KEY }}
+          JSEARCH_API_KEY:      ${{ secrets.JSEARCH_API_KEY }}
+          ADZUNA_APP_ID:        ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY:       ${{ secrets.ADZUNA_APP_KEY }}
+          THEIRSTACK_API_KEY:   ${{ secrets.THEIRSTACK_API_KEY }}
