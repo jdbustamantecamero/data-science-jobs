@@ -50,7 +50,6 @@ Bronze columns: `location_city_raw`, `location_state_raw`, `location_country_raw
 - **Target country**: Canada. JSearch uses `country="ca"`, Adzuna uses `where="Canada"`, TheirStack uses `job_country_code_or=["CA"]`, SerpAPI uses `location="Canada"` (no `gl` — combining both causes 400).
 - **SerpAPI pagination**: uses `next_page_token` from `serpapi_pagination` in each response — NOT `start` offset (that's regular Google Search and causes 400 on `google_jobs`).
 - **SerpAPI timezone**: `posted_at` is computed from relative strings ("3 days ago") using `ZoneInfo("America/Toronto")` (EST/EDT). Only SerpAPI needs this — the other three APIs return pre-timestamped strings from their servers.
-- **Skills page dark theme**: `05_Skills.py` uses injected CSS for dark navy/slate theme. `SKILL_DISPLAY_NAMES` and `CATEGORY_SKILLS` dicts must stay in sync with `skills_parser.SKILLS` (73 skills across 4 categories).
 - **Salary currency**: CAD. Both the DB column default and the pipeline fallback.
 - **Hourly salary conversion**: `normalize_salary()` in `data_cleaner.py` converts hourly rates (period=HOUR) to annual (× 2080). Original values preserved in `salary_min_raw`, `salary_max_raw`, `salary_period_raw`.
 
@@ -77,11 +76,37 @@ pipeline/backfill_data.py       One-time script: re-runs all Silver enrichment o
 pipeline/explore_data_quality.py Diagnostic report on field coverage and data quality
 pipeline/config.py              All env vars; use _require() for mandatory keys
 dashboard/utils.py              All Supabase reads for dashboard; add loaders here
+dashboard/ui_components.py      Design system — colour constants, apply_theme(), helpers (see below)
+dashboard/view_template.py      Annotated starter template — copy when adding a new page
 dashboard/pages/04_Location_Remote.py  Canada choropleth map — 4 switchable metrics
-dashboard/pages/05_Skills.py    Dark-theme skills explorer; SKILL_CATEGORIES must sync with skills_parser.SKILLS
+dashboard/pages/05_Skills.py    Skills explorer; SKILL_CATEGORIES must sync with skills_parser.SKILLS
 notebooks/explore.ipynb         Jupyter notebook for ad-hoc data exploration
 sql/                            Migration files 01→10; apply via Supabase MCP or SQL Editor
+.streamlit/config.toml          Native Streamlit dark theme (background, text, primary colour, font)
 ```
+
+## Dashboard UI design system
+
+The dashboard theme has two layers:
+
+1. **`.streamlit/config.toml`** — sets `backgroundColor`, `secondaryBackgroundColor`, `textColor`, `primaryColor`, `font`. Streamlit applies these natively before any Python runs. Update this file when changing the base palette.
+
+2. **`dashboard/ui_components.py`** — CSS overrides that `config.toml` cannot express (borders, label styles, responsive breakpoints) plus Python helpers. Exports:
+   - `apply_theme()` — call once per page, right after `st.set_page_config()`
+   - `center_layout(max_width=920)` — centres the main content block; call after `apply_theme()` on chart-heavy pages
+   - `page_header(title, subtitle)` — consistent `st.title()` + muted subtitle line
+   - `kpi_row(items)` — responsive KPI row using native `st.metric` + `st.columns`
+   - `kpi_row_html(items)` — KPI cards as a responsive CSS grid (`dsj-kpi-grid` class)
+   - `section_divider(label)` — styled `<hr>` with optional centred label
+   - `empty_state(message)` — centred no-data placeholder
+   - `badge(text, color)` — inline HTML pill for `st.markdown`
+   - Colour constants: `BG`, `SURFACE`, `BORDER`, `TEXT`, `SUBTEXT`, `MUTED`, `ACCENT_*`
+
+**Rules:**
+- Never write raw CSS hex colours or pixel margins in a page file. Import constants from `ui_components`.
+- Never inject a full theme CSS block in a page. Call `apply_theme()` instead.
+- Use `view_template.py` as the starting point for every new page.
+- `SKILL_DISPLAY_NAMES` and `CATEGORY_SKILLS` in `05_Skills.py` must stay in sync with `skills_parser.SKILLS` (73 skills across 4 categories).
 
 ## Dashboard rules
 
@@ -109,6 +134,14 @@ Classification priority:
 4. Import and call in `run_pipeline.py` step 1, append to `raw_jobs`
 5. Add tests in `tests/test_{source}_client.py`
 
+## Adding a new dashboard page
+
+1. Copy `dashboard/view_template.py` to `dashboard/pages/NN_YourPage.py`
+2. Replace all `TODO` values
+3. Call `apply_theme()` right after `st.set_page_config()`
+4. Call `center_layout()` if the page is chart-heavy and benefits from centred content
+5. Use `page_header()`, `kpi_row()`, `section_divider()` — never write raw CSS
+
 ## SQL migration pattern
 
 New schema changes go in a new numbered file (`sql/NN_description.sql`). Always use `IF NOT EXISTS` / `IF EXISTS` guards so files are safe to re-run. Apply via the Supabase MCP (`apply_migration` tool) — no manual SQL Editor needed. Current files: 01–10.
@@ -117,8 +150,14 @@ New schema changes go in a new numbered file (`sql/NN_description.sql`). Always 
 
 Configured in `.mcp.json` (gitignored — contains PAT). Provides `execute_sql`, `apply_migration`, `list_tables` and more. Use `apply_migration` for all DDL (tracked in Supabase migration history). Use `execute_sql` for queries and data checks.
 
-## GitHub Actions secrets (all required)
+## GitHub Actions
 
+Two jobs in `.github/workflows/weekly_pipeline.yml`:
+
+- **`test`** — runs `pytest tests/ -v` on every push and PR to `main`. No secrets needed (all mocked).
+- **`run-pipeline`** — runs only on `schedule` (Monday 06:00 UTC) and `workflow_dispatch`. Blocked by `needs: test`, so a failing test prevents the pipeline from running.
+
+Secrets required (set in GitHub → Settings → Secrets → Actions):
 `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`,
 `JSEARCH_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `THEIRSTACK_API_KEY`, `SERPAPI_API_KEY`
 

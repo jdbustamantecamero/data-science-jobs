@@ -80,6 +80,9 @@ python -m pipeline.run_pipeline
 # Run the dashboard
 streamlit run dashboard/app.py
 
+# Run tests
+pytest tests/
+
 # Explore data in Jupyter
 venv/bin/jupyter notebook notebooks/explore.ipynb
 ```
@@ -93,7 +96,9 @@ venv/bin/jupyter notebook notebooks/explore.ipynb
    - `THEIRSTACK_API_KEY`, `SERPAPI_API_KEY`
 3. Trigger manually via **Actions → Weekly Data Science Jobs Pipeline → Run workflow**
 
-The pipeline also runs automatically every **Monday at 06:00 UTC**.
+The workflow runs on two triggers:
+- **Push / PR to main** — runs `pytest tests/` only (no secrets needed)
+- **Monday 06:00 UTC / manual** — runs tests first, then the pipeline if tests pass
 
 ### 5. Streamlit Community Cloud
 
@@ -109,12 +114,16 @@ The pipeline also runs automatically every **Monday at 06:00 UTC**.
 pytest tests/
 ```
 
+Tests cover all four API client normalisers, the deduplication logic, and the Silver-layer data cleaner. All tests use mocked HTTP and a mock Supabase client — no real API keys or DB connection needed.
+
 ## Project Structure
 
 ```
 DataScienceJobs/
 ├── .github/workflows/
-│   └── weekly_pipeline.yml          # Monday 06:00 UTC cron + manual trigger
+│   └── weekly_pipeline.yml          # CI: tests on push/PR; pipeline gated on tests
+├── .streamlit/
+│   └── config.toml                  # Native dark theme (bg, text, primary colour, font)
 ├── pipeline/
 │   ├── config.py                    # Centralised env var loading
 │   ├── jsearch_client.py            # JSearch fetch + pagination
@@ -131,12 +140,14 @@ DataScienceJobs/
 ├── dashboard/
 │   ├── app.py                       # Streamlit entry point
 │   ├── utils.py                     # Cached data loaders (env → st.secrets fallback)
+│   ├── ui_components.py             # Design system: colours, apply_theme(), kpi_row(), page_header(), etc.
+│   ├── view_template.py             # Annotated starter template for new pages
 │   └── pages/
 │       ├── 01_Overview.py           # KPIs, seniority pie, weekly trend, pipeline runs
 │       ├── 02_Companies.py          # Top companies, seniority dist, employment type
 │       ├── 03_Salaries.py           # Box plot, histogram, top-paying roles
 │       ├── 04_Location_Remote.py    # Canada choropleth map — 4 switchable metrics
-│       └── 05_Skills.py             # Dark-theme skills explorer — 73 skills, 4 categories
+│       └── 05_Skills.py             # Skills explorer — 73 skills, 4 categories, CSS bar chart
 ├── notebooks/
 │   └── explore.ipynb                # Ad-hoc data exploration + column provenance table
 ├── sql/
@@ -178,3 +189,6 @@ DataScienceJobs/
 | Anon key in dashboard | Read-only access even if Streamlit secrets leak; service key stays in GitHub Actions only |
 | No third-party enrichment | Company records are minimal stubs (domain + name) derived directly from job APIs |
 | Supabase MCP | DDL applied programmatically via `apply_migration` — no manual SQL Editor needed |
+| `.streamlit/config.toml` for theme | Native Streamlit theming handles background, text, and primary colour — no CSS injection needed for base palette |
+| `ui_components.py` design system | Single source of truth for colours and layout helpers; pages call `apply_theme()` and helpers rather than writing raw CSS |
+| Tests gate the pipeline | CI runs `pytest` on every push/PR; Monday cron only proceeds if tests pass |
