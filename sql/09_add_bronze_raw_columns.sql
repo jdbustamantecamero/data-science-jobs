@@ -1,3 +1,5 @@
+-- UPGRADE SCRIPT: safe to skip on fresh installs (01_schema.sql + 04_views.sql already include these changes).
+
 -- Bronze layer: store original API values before pipeline cleaning.
 -- These columns are written once at insert time and never updated.
 -- Silver columns (location_city, location_state, etc.) hold the cleaned values.

@@ -1,3 +1,5 @@
+-- UPGRADE SCRIPT: safe to skip on fresh installs (01_schema.sql + 04_views.sql already include these changes).
+
 -- Add Bronze (_raw) columns to v_jobs_enriched.
 -- Raw columns capture original API values before pipeline cleaning.
 

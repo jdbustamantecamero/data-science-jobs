@@ -1,3 +1,5 @@
+-- UPGRADE SCRIPT: safe to skip on fresh installs (01_schema.sql + 04_views.sql already include these changes).
+
 -- Migration: add years_experience_min and seniority to job_postings
 -- Run once in Supabase SQL Editor after 01–05.
 

@@ -1,3 +1,5 @@
+-- UPGRADE SCRIPT: safe to skip on fresh installs (01_schema.sql + 04_views.sql already include these changes).
+
 -- Recreate v_jobs_enriched to pick up columns added after initial creation:
 -- seniority, years_experience_min (added in 06_add_seniority_experience.sql)
 --

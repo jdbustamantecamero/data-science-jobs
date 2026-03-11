@@ -1,3 +1,5 @@
+-- UPGRADE SCRIPT: safe to skip on fresh installs (01_schema.sql + 04_views.sql already include these changes).
+
 -- Remove Apollo enrichment artifacts.
 -- Apollo was removed from the pipeline (free tier: 50 enrichments/month —
 -- too limiting for weekly runs across hundreds of jobs).
