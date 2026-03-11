@@ -12,3 +12,4 @@ venv/
 .DS_Store
 CLAUDE.md.mcp.json
 .mcp.json
+".ipynb_checkpoints/"
