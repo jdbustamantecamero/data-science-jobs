@@ -8,52 +8,21 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from ui_components import apply_theme, page_header, section_divider
 from utils import load_jobs, load_province_stats
 
 # ── page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Location", page_icon="🗺️", layout="wide")
 
 # ── theme ─────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
-
-*, body { font-family: 'DM Sans', sans-serif; }
-
-.stApp { background-color: #0d1b2a; }
-
-[data-testid="stSidebar"] {
-    background-color: #0a1520;
-    border-right: 1px solid #1e3a5f;
-}
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] span { color: #7fa8c9 !important; font-size: 0.85rem; }
-[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: #e2eaf4 !important; }
-
-h1, h2, h3, h4, p, span, div { color: #e2eaf4; }
-
-[data-testid="metric-container"] {
-    background-color: #102035;
-    border: 1px solid #1e3a5f;
-    border-radius: 8px;
-    padding: 14px 18px;
-}
-[data-testid="metric-container"] label { color: #7fa8c9 !important; font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; }
-[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #e2eaf4 !important; font-size: 1.6rem !important; font-weight: 600; }
-
-hr { border-color: #1e3a5f; }
-
-div[data-baseweb="select"] > div { background-color: #102035 !important; color: #e2eaf4 !important; border-color: #1e3a5f !important; }
-
-div[data-testid="stRadio"] > div { flex-wrap: wrap; gap: 6px 20px; }
-div[data-testid="stRadio"] label { color: #7fa8c9 !important; font-size: 0.875rem !important; cursor: pointer; }
-div[data-testid="stRadio"] label:has(input:checked) { color: #e2eaf4 !important; font-weight: 600 !important; }
-
-.stDataFrame { background: #102035; border-radius: 8px; border: 1px solid #1e3a5f; }
-[data-testid="stPlotlyChart"] { border-radius: 12px; overflow: hidden; }
-</style>
-""", unsafe_allow_html=True)
+apply_theme()
+# Page-specific: DM Sans font (used for the choropleth map labels)
+st.markdown(
+    "<style>@import url('https://fonts.googleapis.com/css2?family=DM+Sans:"
+    "wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');"
+    "*, body { font-family: 'DM Sans', sans-serif; }</style>",
+    unsafe_allow_html=True,
+)
 
 # ── constants ─────────────────────────────────────────────────────────────────
 ALL_PROVINCES = [
@@ -165,11 +134,9 @@ national_senior = (
 )
 
 # ── header ────────────────────────────────────────────────────────────────────
-st.markdown(
-    f"<h1 style='margin-bottom:2px'>🗺️ Regional Job Market</h1>"
-    f"<p style='color:#7fa8c9;font-size:0.9rem;margin-top:0;margin-bottom:20px'>"
-    f"Data Science roles across Canada · Map: All Time · KPIs & Cities: {timeframe}</p>",
-    unsafe_allow_html=True,
+page_header(
+    "🗺️ Regional Job Market",
+    f"Data Science roles across Canada · Map: All Time · KPIs & Cities: {timeframe}",
 )
 
 k1, k2, k3, k4 = st.columns(4)
@@ -178,7 +145,7 @@ k2.metric("Provinces Active", str(provinces_active))
 k3.metric("National Remote Rate", f"{national_remote:.0f}%")
 k4.metric("National Senior+ Rate", f"{national_senior:.0f}%")
 
-st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+st.write("")
 
 # ── metric selector ───────────────────────────────────────────────────────────
 metric_choice = st.radio(
@@ -254,16 +221,12 @@ fig_map.update_layout(
 st.plotly_chart(fig_map, use_container_width=True)
 
 # ── below-map detail ──────────────────────────────────────────────────────────
-st.markdown("<hr style='border-color:#1e3a5f;margin:8px 0 20px'>", unsafe_allow_html=True)
+section_divider()
 
 col_left, col_right = st.columns([1, 1], gap="large")
 
 with col_left:
-    st.markdown(
-        "<h3 style='font-size:1rem;color:#7fa8c9;letter-spacing:0.06em;"
-        "text-transform:uppercase;margin-bottom:12px'>Province Breakdown</h3>",
-        unsafe_allow_html=True,
-    )
+    st.subheader("Province Breakdown")
     table_df = stats[["province", "job_count", "remote_rate", "senior_rate", "avg_salary"]].copy()
     table_df["avg_salary"] = table_df["avg_salary"].apply(lambda v: f"${v/1000:.0f}k" if pd.notna(v) else "—")
     table_df["remote_rate"] = table_df["remote_rate"].apply(lambda v: f"{v:.0f}%" if pd.notna(v) else "—")
@@ -273,11 +236,7 @@ with col_left:
     st.dataframe(table_df, use_container_width=True, hide_index=True)
 
 with col_right:
-    st.markdown(
-        "<h3 style='font-size:1rem;color:#7fa8c9;letter-spacing:0.06em;"
-        "text-transform:uppercase;margin-bottom:12px'>Top Cities</h3>",
-        unsafe_allow_html=True,
-    )
+    st.subheader("Top Cities")
     city_df = df[df["location_city"].notna()]
     if not city_df.empty:
         top_cities = city_df["location_city"].value_counts().head(10).reset_index()

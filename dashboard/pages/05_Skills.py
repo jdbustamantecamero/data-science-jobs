@@ -5,65 +5,14 @@ import html as _html
 import pandas as pd
 import streamlit as st
 
+from ui_components import SUBTEXT, TEXT, apply_theme, kpi_row
 from utils import load_jobs
 
 # ── page config ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Skills", page_icon="🛠️", layout="wide")
 
 # ── theme CSS ─────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-.stApp { background-color: #0d1b2a; }
-
-[data-testid="stSidebar"] {
-    background-color: #102035;
-    border-right: 1px solid #1e3a5f;
-}
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] .stRadio > label,
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
-    color: #a8c0d6 !important; font-size: 0.85rem;
-}
-[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    color: #e2eaf4 !important;
-}
-
-h1, h2, h3, h4, p, span, div { color: #e2eaf4; }
-
-[data-testid="metric-container"] {
-    background-color: #102035;
-    border: 1px solid #1e3a5f;
-    border-radius: 8px;
-    padding: 12px 16px;
-}
-[data-testid="metric-container"] label { color: #7fa8c9 !important; font-size: 0.78rem; }
-[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #e2eaf4 !important; }
-
-hr { border-color: #1e3a5f; }
-div[data-baseweb="select"] > div { background-color: #152d45 !important; color: #e2eaf4 !important; }
-
-/* ── inline radio filter — padding set dynamically below ── */
-div[data-testid="stRadio"] > div {
-    flex-wrap: wrap;
-    gap: 4px 16px;
-    row-gap: 6px;
-}
-div[data-testid="stRadio"] label {
-    color: #a8c0d6 !important;
-    font-size: 0.875rem !important;
-    cursor: pointer;
-}
-div[data-testid="stRadio"] label:has(input:checked) {
-    color: #e2eaf4 !important;
-    font-weight: 600 !important;
-}
-div[data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {
-    font-size: 0.8rem;
-    color: #7fa8c9;
-}
-</style>
-""", unsafe_allow_html=True)
+apply_theme()
 
 # ── skill display names (lowercase key → proper title) ───────────────────────
 SKILL_DISPLAY_NAMES: dict[str, str] = {
@@ -152,33 +101,8 @@ CAT_COLORS: dict[str, str] = {
 
 CATEGORIES = ["All"] + list(CATEGORY_SKILLS.keys())
 
-_TEXT    = "#e2eaf4"
-_SUBTEXT = "#7fa8c9"
-
-# ── layout spacing controls ───────────────────────────────────────────────────
-# Title (h1)
-TITLE_ML = 450   # px — title left margin
-TITLE_MR = 0     # px — title right margin
-TITLE_MB = 0     # px — gap below title before subtitle
-
-# Subtitle (meta line)
-SUB_ML   = 625   # px — subtitle left margin
-SUB_MR   = 0     # px — subtitle right margin
-SUB_MB   = 15     # px — gap below subtitle before KPIs
-
-# KPI cards container
-KPI_ML   = 150     # px — KPI row left margin
-KPI_MR   = 150     # px — KPI row right margin
-KPI_MB   = 0    # px — gap below KPIs before skill filter  ← controls KPI→filter gap
-
-# Skill filter (radio) container
-FILTER_ML = 455  # px — filter left margin  (keep in sync with LEFT_PAD below)
-FILTER_MR = 0  # px — filter right margin (keep in sync with RIGHT_PAD below)
-FILTER_MB = 15   # px — gap below filter before chart
-
-# Chart wrapper
-LEFT_PAD  = 215  # px — left gap: content edge → skill name column
-RIGHT_PAD = 250  # px — right gap: chart → content edge
+_TEXT    = TEXT
+_SUBTEXT = SUBTEXT
 
 # ── session state (managed automatically by st.radio key below) ───────────────
 
@@ -263,14 +187,13 @@ label_parts = []
 if province_filter != "All Provinces":
     label_parts.append(province_filter)
 label_parts.append(timeframe)
+st.title("Top Skills for Data Science")
 st.markdown(
-    f"<h1 style='margin-left:{TITLE_ML}px;margin-right:{TITLE_MR}px;"
-    f"margin-bottom:{TITLE_MB}px !important'>Top Skills for Data Science</h1>"
-    f"<p style='margin-left:{SUB_ML}px;margin-right:{SUB_MR}px;"
-    f"margin-bottom:{SUB_MB}px;margin-top:0 !important;color:{_SUBTEXT};font-size:0.9rem'>"
+    f"<p style='margin:-8px 0 16px;color:{_SUBTEXT};font-size:0.9rem'>"
     f"{' · '.join(label_parts)} · {total_jobs:,} jobs analysed</p>",
     unsafe_allow_html=True,
 )
+
 # ── KPIs (dynamic: based on category_filter + timeframe + province) ───────────
 skills_tracked = (
     len(CATEGORY_SKILLS[category_filter])
@@ -280,33 +203,14 @@ skills_tracked = (
 top_skill = freq_chart.iloc[0]["display_name"] if not freq_chart.empty else "—"
 top_pct   = f"{freq_chart.iloc[0]['pct']:.1f}%" if not freq_chart.empty else "—"
 
-_kpi_items = [
+kpi_row([
     ("Skills Tracked",  str(skills_tracked)),
     ("Skills Found",    str(len(freq_chart))),
     ("#1 Skill",        top_skill),
     ("#1 Mention Rate", top_pct),
-]
-_kpi_cards = "".join(
-    f'<div style="background:#102035;border:1px solid #1e3a5f;border-radius:8px;padding:12px 16px; text-align:center">'
-    f'<div style="color:#7fa8c9;font-size:0.78rem;margin-bottom:4px">{lbl}</div>'
-    f'<div style="color:#e2eaf4;font-size:1.5rem;font-weight:600;line-height:1.2">{val}</div>'
-    f'</div>'
-    for lbl, val in _kpi_items
-)
-st.markdown(
-    f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;'
-    f'margin-left:{KPI_ML}px;margin-right:{KPI_MR}px;margin-bottom:{KPI_MB}px">'
-    f'{_kpi_cards}</div>',
-    unsafe_allow_html=True,
-)
+])
 
 # ── inline radio category filter ──────────────────────────────────────────────
-st.markdown(
-    f"<style>[data-testid='stMainBlockContainer'] div[data-testid='stRadio']"
-    f"{{padding-left:{FILTER_ML}px;padding-right:{FILTER_MR}px;"
-    f"margin-bottom:{FILTER_MB}px}}</style>",
-    unsafe_allow_html=True,
-)
 st.radio(
     "Skill category",
     CATEGORIES,
@@ -329,7 +233,7 @@ def _make_chart(plot_df: pd.DataFrame, cat_filter: str) -> str:
     LABEL_W  = 130   # px — skill name column (pushes bars right)
     PCT_FS   = 15    # px — font size of the % label
     RADIUS   = "0 7px 7px 0"
-    # LEFT_PAD / RIGHT_PAD → module-level constants above (line ~132)
+    # Outer padding → clamp() in the return statement below
 
     max_pct = plot_df["pct"].max()
     rows = []
@@ -366,8 +270,10 @@ def _make_chart(plot_df: pd.DataFrame, cat_filter: str) -> str:
             f'</div>'
         )
 
+    # Padding: top 4px | right clamps 8px→240px | bottom 4px | left clamps 8px→220px
+    # clamp() keeps the chart centred on large screens and readable on small ones.
     return (
-        f'<div style="width:100%;padding:4px {RIGHT_PAD}px 4px {LEFT_PAD}px">'
+        '<div style="width:100%;padding:4px clamp(8px,4%,240px) 4px clamp(8px,12%,220px)">'
         + "".join(rows)
         + "</div>"
     )
