@@ -1,28 +1,24 @@
-"""Canada choropleth map — Gold layer: reads pre-aggregated v_province_stats."""
+"""Canada map — province choropleth + city dot density (Folium / Leaflet)."""
 from __future__ import annotations
 
+import copy
 import json
+import math
 import unicodedata
 
+import branca.colormap as cm
+import folium
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from streamlit_folium import st_folium
 
 from ui_components import apply_theme, page_header, section_divider
 from utils import load_jobs, load_province_stats
 
 # ── page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Location", page_icon="🗺️", layout="wide")
-
-# ── theme ─────────────────────────────────────────────────────────────────────
 apply_theme()
-# Page-specific: DM Sans font (used for the choropleth map labels)
-st.markdown(
-    "<style>@import url('https://fonts.googleapis.com/css2?family=DM+Sans:"
-    "wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');"
-    "*, body { font-family: 'DM Sans', sans-serif; }</style>",
-    unsafe_allow_html=True,
-)
 
 # ── constants ─────────────────────────────────────────────────────────────────
 ALL_PROVINCES = [
@@ -74,6 +70,53 @@ METRIC_CONFIG = {
     },
 }
 
+# ── City coordinates — covers the Canadian cities most likely in the dataset ──
+CITY_COORDS: dict[str, tuple[float, float]] = {
+    "Toronto":        (43.6532, -79.3832),
+    "Vancouver":      (49.2827, -123.1207),
+    "Montreal":       (45.5017, -73.5673),
+    "Calgary":        (51.0447, -114.0719),
+    "Edmonton":       (53.5461, -113.4938),
+    "Ottawa":         (45.4215, -75.6972),
+    "Winnipeg":       (49.8951,  -97.1384),
+    "Quebec City":    (46.8139,  -71.2080),
+    "Hamilton":       (43.2557,  -79.8711),
+    "Kitchener":      (43.4516,  -80.4925),
+    "Waterloo":       (43.4668,  -80.5164),
+    "London":         (43.0096,  -81.2737),
+    "Halifax":        (44.6488,  -63.5752),
+    "Victoria":       (48.4284, -123.3656),
+    "Saskatoon":      (52.1332, -106.6700),
+    "Regina":         (50.4452, -104.6189),
+    "St. John's":     (47.5615,  -52.7126),
+    "Moncton":        (46.0878,  -64.7782),
+    "Fredericton":    (45.9636,  -66.6431),
+    "Windsor":        (42.3149,  -83.0364),
+    "Mississauga":    (43.5890,  -79.6441),
+    "Brampton":       (43.7315,  -79.7624),
+    "Markham":        (43.8561,  -79.3370),
+    "Richmond Hill":  (43.8828,  -79.4403),
+    "Guelph":         (43.5448,  -80.2482),
+    "Barrie":         (44.3894,  -79.6903),
+    "Kelowna":        (49.8880, -119.4960),
+    "Abbotsford":     (49.0504, -122.3045),
+    "Surrey":         (49.1913, -122.8490),
+    "Burnaby":        (49.2488, -122.9805),
+    "Oakville":       (43.4675,  -79.6877),
+    "Burlington":     (43.3255,  -79.7990),
+    "Oshawa":         (43.8971,  -78.8658),
+    "Sherbrooke":     (45.4042,  -71.8929),
+    "Laval":          (45.6066,  -73.7124),
+    "Longueuil":      (45.5315,  -73.5180),
+    "Gatineau":       (45.4765,  -75.7013),
+    "Sudbury":        (46.4917,  -80.9930),
+    "Thunder Bay":    (48.3809,  -89.2477),
+    "Lethbridge":     (49.6956, -112.8451),
+    "Red Deer":       (52.2690, -113.8116),
+    "Kamloops":       (50.6745, -120.3273),
+    "Nanaimo":        (49.1659, -123.9401),
+}
+
 # ── GeoJSON (cached 24h) ──────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def load_geojson() -> dict:
@@ -88,27 +131,156 @@ def load_geojson() -> dict:
         )
     return geojson
 
-# ── Gold: province stats (pre-aggregated, all-time) ───────────────────────────
-stats = load_province_stats()   # 11 rows — all aggregation done in Supabase
 
-# ── Slim jobs load for KPIs + city chart (timeframe-filterable) ───────────────
+# ── Map builder ───────────────────────────────────────────────────────────────
+def _inject_stats(geojson: dict, stats_df: pd.DataFrame) -> dict:
+    """Return a deep copy of geojson with formatted stats injected per feature."""
+    geo = copy.deepcopy(geojson)
+    idx = stats_df.set_index("province")
+    for feat in geo["features"]:
+        name = feat["properties"]["name"]
+        # Set safe defaults
+        feat["properties"].update({"_jobs": "—", "_remote": "—", "_senior": "—", "_salary": "—"})
+        if name not in idx.index:
+            continue
+        r = idx.loc[name]
+        if pd.notna(r.get("job_count")):
+            feat["properties"]["_jobs"] = f"{int(r['job_count']):,}"
+        if pd.notna(r.get("remote_rate")):
+            feat["properties"]["_remote"] = f"{r['remote_rate']:.0f}%"
+        if pd.notna(r.get("senior_rate")):
+            feat["properties"]["_senior"] = f"{r['senior_rate']:.0f}%"
+        if pd.notna(r.get("avg_salary")):
+            feat["properties"]["_salary"] = f"${r['avg_salary'] / 1000:.0f}k"
+    return geo
+
+
+def _build_map(
+    geojson: dict,
+    stats_df: pd.DataFrame,
+    jobs_df: pd.DataFrame,
+    cfg: dict,
+    show_cities: bool,
+) -> folium.Map:
+    """Build and return the Folium map for the current metric + city toggle."""
+    m = folium.Map(
+        location=[56.1, -96.0],
+        zoom_start=3,
+        tiles=None,
+        zoom_control=True,
+    )
+
+    # ── CartoDB Dark Matter tiles ─────────────────────────────────────────────
+    folium.TileLayer(
+        tiles="CartoDB dark_matter",
+        name="Basemap",
+        overlay=False,
+        control=False,
+    ).add_to(m)
+
+    # ── Colormap matching METRIC_CONFIG colorscale ────────────────────────────
+    col_series = stats_df[cfg["col"]].dropna()
+    z_min = float(col_series.min()) if not col_series.empty else 0.0
+    z_max = float(col_series.max()) if not col_series.empty else 1.0
+    if z_min == z_max:
+        z_max = z_min + 1.0
+
+    positions  = [p for p, _ in cfg["colorscale"]]
+    hex_colors = [c for _, c in cfg["colorscale"]]
+    colormap = cm.LinearColormap(
+        colors=hex_colors,
+        index=[z_min + p * (z_max - z_min) for p in positions],
+        vmin=z_min,
+        vmax=z_max,
+        caption=cfg["label"],
+    )
+    colormap.add_to(m)
+
+    # ── Province choropleth layer ─────────────────────────────────────────────
+    geo_with_stats = _inject_stats(geojson, stats_df)
+    province_vals  = stats_df.set_index("province")[cfg["col"]].to_dict()
+
+    province_fg = folium.FeatureGroup(name="Provinces", show=True)
+    folium.GeoJson(
+        geo_with_stats,
+        style_function=lambda f, pv=province_vals, cmap=colormap: {
+            "fillColor": cmap(pv[f["properties"]["name"]])
+                if f["properties"]["name"] in pv
+                and pd.notna(pv.get(f["properties"]["name"]))
+                else "#0d2137",
+            "color":       "rgba(255,255,255,0.3)",
+            "weight":      0.8,
+            "fillOpacity": 0.65,
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=["name", "_jobs", "_remote", "_senior", "_salary"],
+            aliases=["Province", "Jobs", "Remote", "Senior+", "Avg Salary"],
+            style=(
+                "background-color:#102035;"
+                "color:#e2eaf4;"
+                "border:1px solid #1e3a5f;"
+                "border-radius:6px;"
+                "padding:6px 12px;"
+                "font-family:system-ui,sans-serif;"
+                "font-size:12px;"
+            ),
+            sticky=True,
+        ),
+    ).add_to(province_fg)
+    province_fg.add_to(m)
+
+    # ── City dot density layer ────────────────────────────────────────────────
+    if show_cities and "location_city" in jobs_df.columns:
+        city_counts = jobs_df["location_city"].dropna().value_counts()
+
+        city_fg = folium.FeatureGroup(name="City density", show=True)
+        for city, count in city_counts.items():
+            coords = CITY_COORDS.get(city)
+            if coords is None:
+                continue
+            # Log scale: small cities still visible, large cities don't dwarf everything
+            radius = max(4, min(24, 4 + math.log1p(count) * 3.5))
+            folium.CircleMarker(
+                location=coords,
+                radius=radius,
+                color="white",
+                weight=0.5,
+                fill=True,
+                fill_color=cfg["accent"],
+                fill_opacity=0.75,
+                tooltip=(
+                    f"<b style='font-family:system-ui'>{city}</b>"
+                    f"<br><span style='color:#a8c0d6'>{count:,} jobs</span>"
+                ),
+            ).add_to(city_fg)
+        city_fg.add_to(m)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+    return m
+
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+stats  = load_province_stats()
 df_all = load_jobs()
+
 if df_all.empty:
     st.info("No job data available yet.")
     st.stop()
 if "posted_at" in df_all.columns:
     df_all["posted_at"] = pd.to_datetime(df_all["posted_at"], utc=True, errors="coerce")
 
-# ── sidebar ───────────────────────────────────────────────────────────────────
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🗺️ Location Explorer")
-    st.markdown("---")
+    section_divider()
     timeframe = st.selectbox(
         "Timeframe (KPIs & Cities)",
         ["All Time", "Last 30 Days", "Last 90 Days", "YTD 2026"],
     )
+    section_divider()
+    show_cities = st.checkbox("Show city dots", value=True)
 
-# ── timeframe filter (KPIs + city chart only — map is always all-time) ────────
+# ── Timeframe filter (KPIs + city dots only — province map is always all-time) ─
 now_utc = pd.Timestamp.now(tz="UTC")
 df = df_all.copy()
 if timeframe == "Last 30 Days":
@@ -118,22 +290,22 @@ elif timeframe == "Last 90 Days":
 elif timeframe == "YTD 2026":
     df = df[df["posted_at"] >= pd.Timestamp("2026-01-01", tz="UTC")]
 
-# ── national KPIs (computed from timeframe-filtered df) ───────────────────────
+# ── National KPIs ─────────────────────────────────────────────────────────────
 total_with_province = int(stats["job_count"].sum()) if not stats.empty else 0
-provinces_active = int((stats["job_count"] > 0).sum()) if not stats.empty else 0
+provinces_active    = int((stats["job_count"] > 0).sum()) if not stats.empty else 0
 
-remote_known = df[df["is_remote"].notna()]
+remote_known   = df[df["is_remote"].notna()]
 national_remote = (
     round(100 * remote_known["is_remote"].astype(bool).sum() / len(remote_known), 1)
     if not remote_known.empty else 0.0
 )
-senior_known = df[df["seniority"].notna()] if "seniority" in df.columns else pd.DataFrame()
+senior_known   = df[df["seniority"].notna()] if "seniority" in df.columns else pd.DataFrame()
 national_senior = (
     round(100 * senior_known["seniority"].isin(SENIOR_LABELS).sum() / len(senior_known), 1)
     if not senior_known.empty else 0.0
 )
 
-# ── header ────────────────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 page_header(
     "🗺️ Regional Job Market",
     f"Data Science roles across Canada · Map: All Time · KPIs & Cities: {timeframe}",
@@ -141,13 +313,13 @@ page_header(
 
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Jobs with Location", f"{total_with_province:,}")
-k2.metric("Provinces Active", str(provinces_active))
-k3.metric("National Remote Rate", f"{national_remote:.0f}%")
+k2.metric("Provinces Active",   str(provinces_active))
+k3.metric("National Remote Rate",  f"{national_remote:.0f}%")
 k4.metric("National Senior+ Rate", f"{national_senior:.0f}%")
 
 st.write("")
 
-# ── metric selector ───────────────────────────────────────────────────────────
+# ── Metric selector ───────────────────────────────────────────────────────────
 metric_choice = st.radio(
     "Map metric", list(METRIC_CONFIG.keys()),
     horizontal=True, label_visibility="collapsed",
@@ -156,71 +328,22 @@ cfg = METRIC_CONFIG[metric_choice]
 if cfg["note"]:
     st.info(cfg["note"])
 
-# ── choropleth map — Gold data, zero local computation ────────────────────────
+# ── Folium map ────────────────────────────────────────────────────────────────
 geojson = load_geojson()
 
-# All 13 provinces in the DataFrame so unrepresented ones show as gray
 complete_stats = pd.DataFrame({"province": ALL_PROVINCES}).merge(
     stats, on="province", how="left"
 )
 
-def _fmt_sal(v):
-    return f"${v/1000:.0f}k" if pd.notna(v) else "n/a"
-
-def _fmt_pct(v):
-    return f"{v:.0f}%" if pd.notna(v) else "n/a"
-
-complete_stats["hover"] = complete_stats.apply(
-    lambda r: (
-        f"<b>{r['province']}</b><br>"
-        f"Jobs: {int(r['job_count']) if pd.notna(r.get('job_count')) else 'n/a'}<br>"
-        f"Remote: {_fmt_pct(r.get('remote_rate'))}<br>"
-        f"Senior+: {_fmt_pct(r.get('senior_rate'))}<br>"
-        f"Avg Salary: {_fmt_sal(r.get('avg_salary'))}<br>"
-        f"Dominant: {r.get('dominant_seniority') or '—'}"
-    ),
-    axis=1,
-)
-
-col_data = complete_stats[cfg["col"]]
-z_min, z_max = col_data.min(skipna=True), col_data.max(skipna=True)
-
-fig_map = px.choropleth(
-    complete_stats,
-    geojson=geojson,
-    locations="province",
-    featureidkey="properties.name",
-    color=cfg["col"],
-    color_continuous_scale=cfg["colorscale"],
-    range_color=[z_min, z_max] if pd.notna(z_min) and pd.notna(z_max) else None,
-    custom_data=["hover"],
-)
-fig_map.update_traces(
-    hovertemplate="%{customdata[0]}<extra></extra>",
-    marker_line_color="rgba(255,255,255,0.4)",
-    marker_line_width=0.8,
-)
-fig_map.update_geos(
-    visible=False, fitbounds="locations",
-    showland=True, landcolor="#0a1520",
-    showocean=True, oceancolor="#060e18",
-    showlakes=True, lakecolor="#0a1520",
-    showframe=False, showcoastlines=False,
-)
-fig_map.update_layout(
-    paper_bgcolor="#0d1b2a", plot_bgcolor="#0d1b2a", geo_bgcolor="#0d1b2a",
-    margin={"r": 10, "t": 10, "l": 10, "b": 10},
+st_folium(
+    _build_map(geojson, complete_stats, df, cfg, show_cities),
+    use_container_width=True,
     height=540,
-    coloraxis_colorbar=dict(
-        title=dict(text=cfg["label"], font=dict(color="#7fa8c9", size=11)),
-        tickfont=dict(color="#a8c0d6", size=10),
-        bgcolor="#102035", bordercolor="#1e3a5f", borderwidth=1,
-        len=0.7, thickness=14, x=1.01,
-    ),
+    returned_objects=[],
+    key=f"canada_map_{metric_choice}_{show_cities}",
 )
-st.plotly_chart(fig_map, use_container_width=True)
 
-# ── below-map detail ──────────────────────────────────────────────────────────
+# ── Below-map detail ──────────────────────────────────────────────────────────
 section_divider()
 
 col_left, col_right = st.columns([1, 1], gap="large")
@@ -228,10 +351,10 @@ col_left, col_right = st.columns([1, 1], gap="large")
 with col_left:
     st.subheader("Province Breakdown")
     table_df = stats[["province", "job_count", "remote_rate", "senior_rate", "avg_salary"]].copy()
-    table_df["avg_salary"] = table_df["avg_salary"].apply(lambda v: f"${v/1000:.0f}k" if pd.notna(v) else "—")
+    table_df["avg_salary"]  = table_df["avg_salary"].apply(lambda v: f"${v/1000:.0f}k" if pd.notna(v) else "—")
     table_df["remote_rate"] = table_df["remote_rate"].apply(lambda v: f"{v:.0f}%" if pd.notna(v) else "—")
     table_df["senior_rate"] = table_df["senior_rate"].apply(lambda v: f"{v:.0f}%" if pd.notna(v) else "—")
-    table_df["job_count"] = table_df["job_count"].astype(int)
+    table_df["job_count"]   = table_df["job_count"].astype(int)
     table_df.columns = ["Province", "Jobs", "Remote", "Senior+", "Avg Salary"]
     st.dataframe(table_df, use_container_width=True, hide_index=True)
 
