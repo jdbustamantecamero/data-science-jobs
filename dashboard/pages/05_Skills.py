@@ -5,7 +5,7 @@ import html as _html
 import pandas as pd
 import streamlit as st
 
-from ui_components import SUBTEXT, TEXT, apply_theme, center_layout, kpi_row
+from ui_components import BORDER, SUBTEXT, SURFACE, TEXT, apply_theme, center_layout
 from utils import load_jobs
 
 # ── page config ──────────────────────────────────────────────────────────────
@@ -183,15 +183,30 @@ freq_chart = (
 if top_n:
     freq_chart = freq_chart.head(top_n)
 
+# ── alignment: all elements share the chart's bar-start left edge ─────────────
+# Bar start = chart outer-left padding + label column (130px) + label gap (14px)
+# This calc() mirrors the clamp() in _make_chart() so everything tracks together.
+_ALIGN_L = "calc(clamp(8px, 12%, 220px) + 144px)"
+st.markdown(
+    f"<style>"
+    f".dsj-aligned {{ padding-left: {_ALIGN_L}; }}"
+    f"[data-testid='stMainBlockContainer'] div[data-testid='stRadio']"
+    f" {{ padding-left: {_ALIGN_L}; margin-bottom: 15px; }}"
+    f"</style>",
+    unsafe_allow_html=True,
+)
+
 # ── title ─────────────────────────────────────────────────────────────────────
 label_parts = []
 if province_filter != "All Provinces":
     label_parts.append(province_filter)
 label_parts.append(timeframe)
-st.title("Top Skills for Data Science")
 st.markdown(
-    f"<p style='margin:-8px 0 16px;color:{_SUBTEXT};font-size:0.9rem'>"
-    f"{' · '.join(label_parts)} · {total_jobs:,} jobs analysed</p>",
+    f"<div class='dsj-aligned'>"
+    f"<h1 style='margin:0 0 4px'>Top Skills for Data Science</h1>"
+    f"<p style='margin:0 0 20px;color:{_SUBTEXT};font-size:0.9rem'>"
+    f"{' · '.join(label_parts)} · {total_jobs:,} jobs analysed</p>"
+    f"</div>",
     unsafe_allow_html=True,
 )
 
@@ -204,12 +219,25 @@ skills_tracked = (
 top_skill = freq_chart.iloc[0]["display_name"] if not freq_chart.empty else "—"
 top_pct   = f"{freq_chart.iloc[0]['pct']:.1f}%" if not freq_chart.empty else "—"
 
-kpi_row([
-    ("Skills Tracked",  str(skills_tracked)),
-    ("Skills Found",    str(len(freq_chart))),
-    ("#1 Skill",        top_skill),
-    ("#1 Mention Rate", top_pct),
-])
+_kpi_cards = "".join(
+    f'<div style="background:{SURFACE};border:1px solid {BORDER};'
+    f'border-radius:8px;padding:12px 16px;text-align:center">'
+    f'<div style="color:{_SUBTEXT};font-size:0.78rem;margin-bottom:4px">{lbl}</div>'
+    f'<div style="color:{_TEXT};font-size:1.5rem;font-weight:600;line-height:1.2">{val}</div>'
+    f'</div>'
+    for lbl, val in [
+        ("Skills Tracked",  str(skills_tracked)),
+        ("Skills Found",    str(len(freq_chart))),
+        ("#1 Skill",        top_skill),
+        ("#1 Mention Rate", top_pct),
+    ]
+)
+st.markdown(
+    f'<div class="dsj-aligned">'
+    f'<div class="dsj-kpi-grid" style="--kpi-cols:4;margin-bottom:16px">'
+    f'{_kpi_cards}</div></div>',
+    unsafe_allow_html=True,
+)
 
 # ── inline radio category filter ──────────────────────────────────────────────
 st.radio(
