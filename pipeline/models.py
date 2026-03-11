@@ -1,12 +1,25 @@
-"""Data models for the job pipeline."""
+"""
+Data models and type definitions for the job pipeline.
+
+This module defines the 'JobDict' contract, which ensures consistency as 
+data flows from raw API ingestion (Bronze) through cleaning (Silver).
+"""
 from __future__ import annotations
 
 from typing import List, Optional, TypedDict
 
 
 class JobDict(TypedDict, total=False):
+    """
+    Standardized dictionary representation of a job posting.
+    
+    This TypedDict serves as the data contract for the entire pipeline. 
+    It contains both the raw 'Bronze' fields (prefixed with _raw) and 
+    the cleaned 'Silver' fields.
+    """
+    
     # ── BRONZE LAYER (Raw API values) ────────────────────────────────────────
-    # Every field coming from an external API should have a _raw version.
+    # These capture the original state of the data from external providers.
     title_raw: Optional[str]
     company_name_raw: Optional[str]
     company_domain_raw: Optional[str]
@@ -25,8 +38,8 @@ class JobDict(TypedDict, total=False):
     posted_at_raw: Optional[str]
 
     # ── SILVER LAYER (Cleaned / Normalised values) ───────────────────────────
-    # These are the fields used for processing and enrichment.
-    job_id: str  # Unique across all layers
+    # These are the fields populated by JobTransformer after cleaning.
+    job_id: str  # Unique identifier (e.g. 'adzuna_123')
     title: Optional[str]
     company_name: Optional[str]
     company_domain: Optional[str]
@@ -42,9 +55,9 @@ class JobDict(TypedDict, total=False):
     job_description: Optional[str]
     job_apply_link: Optional[str]
     employer_logo: Optional[str]
-    posted_at: Optional[str]
+    posted_at: Optional[str]  # Normalized ISO string
 
-    # Silver-only (Derived in this layer)
+    # Silver-only (Derived by the pipeline, no direct API equivalent)
     skills_tags: List[str]
     years_experience_min: Optional[int]
     seniority: str

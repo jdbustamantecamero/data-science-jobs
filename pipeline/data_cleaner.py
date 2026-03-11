@@ -1,4 +1,11 @@
-"""Data cleaning utilities: HTML stripping, experience extraction, seniority."""
+"""
+Data cleaning and normalization utilities for the job pipeline (Silver Layer).
+
+This module contains specialized logic for stripping HTML from descriptions,
+extracting numerical years of experience, classifying seniority levels,
+and normalizing location strings (cities, provinces, countries) specifically 
+for the Canadian job market.
+"""
 from __future__ import annotations
 
 import re
@@ -6,11 +13,12 @@ import unicodedata
 from html.parser import HTMLParser
 
 
-# ---------------------------------------------------------------------------
-# HTML cleaning
-# ---------------------------------------------------------------------------
+# ── HTML Cleaning ────────────────────────────────────────────────────────────
 
 class _HTMLStripper(HTMLParser):
+    """
+    Internal helper to strip HTML tags while preserving text content.
+    """
     def __init__(self) -> None:
         super().__init__()
         self._chunks: list[str] = []
@@ -23,7 +31,10 @@ class _HTMLStripper(HTMLParser):
 
 
 def clean_description(text: str | None) -> str | None:
-    """Strip HTML tags and collapse whitespace from a job description."""
+    """
+    Strip HTML tags and collapse redundant whitespace from a job description.
+    Used to normalize raw API descriptions into a clean, searchable format.
+    """
     if not text:
         return text
     stripper = _HTMLStripper()
@@ -34,12 +45,10 @@ def clean_description(text: str | None) -> str | None:
     return cleaned or None
 
 
-# ---------------------------------------------------------------------------
-# Years of experience extraction
-# ---------------------------------------------------------------------------
+# ── Experience Extraction ──────────────────────────────────────────────────
 
-# Each pattern captures the *minimum* years in group 1.
-# Ordered from most specific to least specific.
+# Regex patterns to capture numerical years of experience.
+# Pre-compiled for performance during large batch transformations.
 _YEARS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(\d+)\s*[-–to]+\s*\d+\s+years?\s+(?:of\s+)?(?:relevant\s+|work\s+)?experience", re.I),
     re.compile(r"(\d+)\+?\s+years?\s+(?:of\s+)?(?:relevant\s+|work\s+)?experience", re.I),
@@ -50,7 +59,12 @@ _YEARS_PATTERNS: list[re.Pattern[str]] = [
 
 
 def extract_years_experience(text: str | None) -> int | None:
-    """Return the minimum years of experience mentioned in *text*, or None."""
+    """
+    Return the minimum years of experience mentioned in a job description.
+    
+    Tries multiple patterns in order of specificity. 
+    Returns the first match found, or None if no experience requirement is detected.
+    """
     if not text:
         return None
     for pattern in _YEARS_PATTERNS:
@@ -63,12 +77,9 @@ def extract_years_experience(text: str | None) -> int | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Seniority classification
-# ---------------------------------------------------------------------------
+# ── Seniority Classification ────────────────────────────────────────────────
 
-# Rules are checked in order; first match wins.
-# Each entry: (seniority_label, [regex_patterns_against_lowercased_title])
+# Taxonomy of seniority levels and their title-based keyword rules.
 _TITLE_RULES: list[tuple[str, list[str]]] = [
     ("Intern",     [r"\bintern\b", r"\binternship\b", r"\bco-op\b", r"\bcoop\b"]),
     ("Junior",     [r"\bjunior\b", r"\bjr\b", r"\bentry[\s-]level\b", r"\bassociate\b",
@@ -93,12 +104,13 @@ _YEARS_TO_SENIORITY: list[tuple[int, str]] = [
 
 
 def classify_seniority(title: str | None, years_exp: int | None) -> str:
-    """Return a seniority label for a job.
+    """
+    Classify the seniority of a job posting using a tiered approach.
 
     Priority:
-    1. Explicit keyword in the job title
-    2. Years of experience extracted from the description
-    3. Default: "Mid"
+    1. Direct keyword match in the job title (e.g., "Senior Data Scientist").
+    2. Numerical experience requirements (e.g., 5 years -> Mid/Senior).
+    3. Default to "Mid".
     """
     if title:
         for label, patterns in _COMPILED_TITLE_RULES:
@@ -113,17 +125,20 @@ def classify_seniority(title: str | None, years_exp: int | None) -> str:
     return "Mid"
 
 
-# ── Accent stripping ──────────────────────────────────────────────────────────
+# ── Accent Stripping ────────────────────────────────────────────────────────
 
 def _strip_accents(text: str) -> str:
-    """Remove diacritics: 'Québec' → 'Quebec', 'Montréal' → 'Montreal'."""
+    """
+    Normalize strings by removing diacritics. 
+    Converts 'Québec' -> 'Quebec', 'Montréal' -> 'Montreal'.
+    """
     return "".join(
         c for c in unicodedata.normalize("NFD", text)
         if unicodedata.category(c) != "Mn"
     )
 
 
-# ── Province normalisation ────────────────────────────────────────────────────
+# ── Province Normalization ──────────────────────────────────────────────────
 
 _PROVINCE_MAP: dict[str, str] = {
     "ab": "Alberta", "alberta": "Alberta",
@@ -146,16 +161,18 @@ _PROVINCE_MAP: dict[str, str] = {
 
 
 def normalize_province(state: str | None) -> str | None:
-    """Return canonical English province name, stripping accents and expanding abbreviations."""
+    """
+    Convert raw province strings or abbreviations to canonical names.
+    Handles accent stripping and common shorthand (e.g., 'ON' -> 'Ontario').
+    """
     if not state:
         return None
     stripped = _strip_accents(state.strip())
     return _PROVINCE_MAP.get(stripped.lower(), stripped)
 
 
-# ── City normalisation ────────────────────────────────────────────────────────
+# ── City Normalization ──────────────────────────────────────────────────────
 
-# None → ambiguous value; caller should try description inference.
 _CITY_ALIASES: dict[str, str | None] = {
     "greater vancouver": "Vancouver",
     "north vancouver": "Vancouver",
@@ -170,18 +187,22 @@ _CITY_ALIASES: dict[str, str | None] = {
 
 
 def normalize_city(city: str | None) -> str | None:
-    """Canonical city name: strip accents, resolve aliases, remove noise suffixes."""
+    """
+    Clean and normalize city names.
+    Removes accents, resolves regional aliases, and strips generic noise terms.
+    """
     if not city:
         return None
     stripped = _strip_accents(city.strip())
     key = stripped.lower()
     if key in _CITY_ALIASES:
-        return _CITY_ALIASES[key]  # may be None (ambiguous)
+        return _CITY_ALIASES[key]
+    # Remove 'region' suffix if it exists
     stripped = re.sub(r"\s+region\s*$", "", stripped, flags=re.IGNORECASE).strip()
     return stripped or None
 
 
-# ── Country normalisation ─────────────────────────────────────────────────────
+# ── Country Normalization ────────────────────────────────────────────────────
 
 _COUNTRY_MAP: dict[str, str] = {
     "ca": "Canada",
@@ -191,135 +212,104 @@ _COUNTRY_MAP: dict[str, str] = {
 
 
 def normalize_country(country: str | None) -> str | None:
-    """Normalise country: 'CA' → 'Canada', None → 'Anywhere' (remote)."""
+    """
+    Normalize country strings. Defaults to 'Anywhere' for missing values (remote indicator).
+    """
     if not country:
         return "Anywhere"
     return _COUNTRY_MAP.get(country.strip().lower(), country.strip())
 
 
-# ── City → province lookup ────────────────────────────────────────────────────
+# ── City to Province Lookup ──────────────────────────────────────────────────
 
 _CITY_TO_PROVINCE: dict[str, str] = {
-    # Ontario
-    "toronto": "Ontario", "mississauga": "Ontario", "brampton": "Ontario",
-    "markham": "Ontario", "ottawa": "Ontario", "hamilton": "Ontario",
-    "london": "Ontario", "kitchener": "Ontario", "waterloo": "Ontario",
-    "windsor": "Ontario", "richmond hill": "Ontario", "oakville": "Ontario",
-    "burlington": "Ontario", "oshawa": "Ontario", "barrie": "Ontario",
-    "kingston": "Ontario", "sudbury": "Ontario", "thunder bay": "Ontario",
-    "nepean": "Ontario", "vaughan": "Ontario",
-    # British Columbia
-    "vancouver": "British Columbia", "surrey": "British Columbia",
+    "toronto": "Ontario", "vancouver": "British Columbia", "calgary": "Alberta",
+    "edmonton": "Alberta", "montreal": "Quebec", "ottawa": "Ontario",
+    "mississauga": "Ontario", "brampton": "Ontario", "markham": "Ontario",
+    "hamilton": "Ontario", "london": "Ontario", "kitchener": "Ontario",
+    "waterloo": "Ontario", "windsor": "Ontario", "richmond hill": "Ontario",
+    "oakville": "Ontario", "burlington": "Ontario", "oshawa": "Ontario",
+    "barrie": "Ontario", "kingston": "Ontario", "sudbury": "Ontario",
+    "thunder bay": "Ontario", "vaughan": "Ontario", "surrey": "British Columbia",
     "burnaby": "British Columbia", "richmond": "British Columbia",
     "abbotsford": "British Columbia", "kelowna": "British Columbia",
     "kamloops": "British Columbia", "port moody": "British Columbia",
-    "coquitlam": "British Columbia", "fort st. john": "British Columbia",
-    "victoria": "British Columbia",
-    # Alberta
-    "calgary": "Alberta", "edmonton": "Alberta", "red deer": "Alberta",
-    "lethbridge": "Alberta", "fort mcmurray": "Alberta",
-    "medicine hat": "Alberta", "grande prairie": "Alberta",
-    # Quebec
-    "montreal": "Quebec", "quebec city": "Quebec", "laval": "Quebec",
-    "gatineau": "Quebec", "longueuil": "Quebec", "sherbrooke": "Quebec",
-    "saguenay": "Quebec", "levis": "Quebec", "trois-rivieres": "Quebec",
-    "saint-hyacinthe": "Quebec", "drummondville": "Quebec",
-    # Manitoba
-    "winnipeg": "Manitoba", "brandon": "Manitoba",
-    # Saskatchewan
-    "saskatoon": "Saskatchewan", "regina": "Saskatchewan",
-    # Nova Scotia
-    "halifax": "Nova Scotia", "dartmouth": "Nova Scotia", "sydney": "Nova Scotia",
-    # New Brunswick
-    "moncton": "New Brunswick", "saint john": "New Brunswick",
-    "fredericton": "New Brunswick",
-    # Newfoundland
-    "st. john's": "Newfoundland and Labrador",
-    "corner brook": "Newfoundland and Labrador",
-    # PEI
-    "charlottetown": "Prince Edward Island",
-    "summerside": "Prince Edward Island",
-    # Territories
-    "whitehorse": "Yukon",
-    "yellowknife": "Northwest Territories",
-    "iqaluit": "Nunavut",
+    "coquitlam": "British Columbia", "victoria": "British Columbia",
+    "red deer": "Alberta", "lethbridge": "Alberta", "fort mcmurray": "Alberta",
+    "medicine hat": "Alberta", "grande prairie": "Alberta", "quebec city": "Quebec",
+    "laval": "Quebec", "gatineau": "Quebec", "longueuil": "Quebec",
+    "sherbrooke": "Quebec", "saguenay": "Quebec", "levis": "Quebec",
+    "trois-rivieres": "Quebec", "saint-hyacinthe": "Quebec", "drummondville": "Quebec",
+    "winnipeg": "Manitoba", "brandon": "Manitoba", "saskatoon": "Saskatchewan",
+    "regina": "Saskatchewan", "halifax": "Nova Scotia", "dartmouth": "Nova Scotia",
+    "sydney": "Nova Scotia", "moncton": "New Brunswick", "saint john": "New Brunswick",
+    "fredericton": "New Brunswick", "st. john's": "Newfoundland and Labrador",
+    "whitehorse": "Yukon", "yellowknife": "Northwest Territories", "iqaluit": "Nunavut",
 }
 
 
 def infer_province_from_city(city: str | None) -> str | None:
-    """Return province for a known Canadian city, or None."""
+    """
+    Heuristic to fill missing province values if the city is a known Canadian city.
+    """
     if not city:
         return None
     return _CITY_TO_PROVINCE.get(_strip_accents(city).lower())
 
 
-# ── Location inference from job description ───────────────────────────────────
+# ── Location Inference from Description ─────────────────────────────────────
 
 _PROVINCE_ABBREVS: dict[str, str] = {
-    "ON": "Ontario", "BC": "British Columbia", "AB": "Alberta",
-    "QC": "Quebec", "MB": "Manitoba", "SK": "Saskatchewan",
-    "NS": "Nova Scotia", "NB": "New Brunswick", "NL": "Newfoundland and Labrador",
-    "PE": "Prince Edward Island", "NT": "Northwest Territories",
-    "NU": "Nunavut", "YT": "Yukon",
+    "ON": "Ontario", "BC": "British Columbia", "AB": "Alberta", "QC": "Quebec",
+    "MB": "Manitoba", "SK": "Saskatchewan", "NS": "Nova Scotia", "NB": "New Brunswick",
+    "NL": "Newfoundland and Labrador", "PE": "Prince Edward Island",
+    "NT": "Northwest Territories", "NU": "Nunavut", "YT": "Yukon",
 }
 
-# "City, AB" or "City, Alberta" patterns (longest city first to avoid partial matches)
+# Pre-compiled Regex for description-based location scanning.
 _CITIES_SORTED = sorted(_CITY_TO_PROVINCE.keys(), key=len, reverse=True)
-
-_ABBREV_ALTS: dict[str, list[str]] = {}
-for _abbr, _prov in _PROVINCE_ABBREVS.items():
-    _ABBREV_ALTS.setdefault(_prov, []).append(_abbr)
-
 _CITY_PROV_RE: list[tuple[str, re.Pattern[str]]] = []
+
 for _ck in _CITIES_SORTED:
     _prov = _CITY_TO_PROVINCE[_ck]
-    _abbrs = _ABBREV_ALTS.get(_prov, [])
-    _alts = [re.escape(_prov)] + [re.escape(a) for a in _abbrs]
     _CITY_PROV_RE.append((
         _ck,
         re.compile(
-            re.escape(_ck.title()) + r",?\s*(?:" + "|".join(_alts) + r")\b",
+            re.escape(_ck.title()) + r",?\s*(?:" + re.escape(_prov) + r"|ON|BC|AB|QC|MB|SK|NS|NB|NL|PE|NT|NU|YT)\b",
             re.IGNORECASE,
         ),
     ))
 
-# Province-abbreviation-only: ", ON" or " ON " etc.
 _PROV_ONLY_RE = re.compile(
     r"(?:,\s*|\s)(" + "|".join(_PROVINCE_ABBREVS.keys()) + r")(?:\s|,|$|\b)",
 )
 
 
-def infer_location_from_description(
-    description: str | None,
-) -> tuple[str | None, str | None]:
-    """Infer (city, province) from a job description.
-
-    Uses conservative patterns only (City + Province co-occurrence).
-    Returns (None, None) when nothing reliable is found.
+def infer_location_from_description(description: str | None) -> tuple[str | None, str | None]:
+    """
+    Scan the job description for 'City, Province' patterns to fill missing location data.
+    Returns (city, province) or (None, None).
     """
     if not description:
         return None, None
 
-    # 1. "City, AB" or "City, Alberta" — most reliable
+    # Try City + Province co-occurrence
     for city_key, pattern in _CITY_PROV_RE:
         if pattern.search(description):
-            province = _CITY_TO_PROVINCE[city_key]
-            return city_key.title(), province
+            return city_key.title(), _CITY_TO_PROVINCE[city_key]
 
-    # 2. Province abbreviation alone (",  ON" etc.) — gives province, no city
+    # Fallback to Province-only indicator
     m = _PROV_ONLY_RE.search(description)
     if m:
         abbrev = m.group(1).upper()
-        province = _PROVINCE_ABBREVS.get(abbrev)
-        if province:
-            return None, province
+        return None, _PROVINCE_ABBREVS.get(abbrev)
 
     return None, None
 
 
-# ── Salary normalisation ──────────────────────────────────────────────────────
+# ── Salary Normalization ────────────────────────────────────────────────────
 
-_HOURS_PER_YEAR = 2080  # 52 weeks × 40 hours
+_HOURS_PER_YEAR = 2080  # Baseline: 40 hrs/week * 52 weeks
 
 
 def normalize_salary(
@@ -327,10 +317,10 @@ def normalize_salary(
     salary_max: float | None,
     salary_period: str | None,
 ) -> tuple[float | None, float | None, str]:
-    """Convert hourly pay to annual equivalent.
-
-    Returns (salary_min, salary_max, period).
-    Values are nulled out if the converted annual exceeds 500k (data error).
+    """
+    Normalize salary into a yearly CAD figure.
+    Converts hourly rates to annual (x2080).
+    Sets values to None if the annual rate exceeds 500k (outlier/data error).
     """
     if salary_period != "HOUR":
         return salary_min, salary_max, salary_period or "YEAR"

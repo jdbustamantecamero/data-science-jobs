@@ -1,8 +1,14 @@
-"""Transformer to clean and enrich job records (Bronze -> Silver)."""
+"""
+Job record transformer (Bronze -> Silver Layer).
+
+This module contains the 'JobTransformer' class, which is responsible for 
+the transition of job records from their raw state (Bronze) to a cleaned, 
+standardized, and enriched state (Silver).
+"""
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import List
 
 from pipeline.data_cleaner import (
     classify_seniority,
@@ -22,12 +28,22 @@ logger = logging.getLogger(__name__)
 
 
 class JobTransformer:
-    """Handles the transformation from Bronze (raw) to Silver (cleaned) layer."""
+    """
+    Orchestrates the cleaning and enrichment of job records.
+    
+    This class takes raw Bronze records (populated by API providers) and applies
+    all normalization rules defined in data_cleaner.py and skills_parser.py.
+    """
 
     def transform(self, job: JobDict) -> JobDict:
-        """Clean and enrich a single job record."""
-        # 1. Initialize Silver fields from Bronze
-        # Most fields start as a direct copy of the raw API value.
+        """
+        Transform a single raw job record into a cleaned Silver record.
+        
+        This method is the canonical location for defining the flow of 
+        data from raw API fields (_raw) to their cleaned counterparts.
+        """
+        # 1. Initialize Silver fields from Bronze (raw snapshots)
+        # We start by copying the raw API values into our working Silver fields.
         job["title"] = job.get("title_raw")
         job["company_name"] = job.get("company_name_raw")
         job["location_city"] = job.get("location_city_raw")
@@ -45,19 +61,22 @@ class JobTransformer:
         job["posted_at"] = job.get("posted_at_raw")
 
         # 2. Description Cleaning
+        # Strip HTML and normalize whitespace immediately so downstream 
+        # parsers (skills, experience) work with clean text.
         cleaned_desc = clean_description(job.get("job_description"))
         job["job_description"] = cleaned_desc
 
         # 3. Location Normalization
+        # Apply Canadian-specific location normalization rules.
         city = normalize_city(job.get("location_city"))
         province = normalize_province(job.get("location_state"))
         country = normalize_country(job.get("location_country"))
 
-        # Infer missing province from city
+        # Heuristic: Infer missing province from a known city (e.g., 'Toronto' -> 'Ontario').
         if not province and city:
             province = infer_province_from_city(city)
 
-        # Infer missing location from description
+        # Heuristic: If still missing city/province, scan the description for patterns.
         if not city or not province:
             desc_city, desc_province = infer_location_from_description(cleaned_desc)
             city = city or desc_city
@@ -67,7 +86,8 @@ class JobTransformer:
         job["location_state"] = province
         job["location_country"] = country
 
-        # 4. Salary Normalization (hourly -> annual, etc.)
+        # 4. Salary Normalization
+        # Standardize pay into annual CAD figures.
         s_min, s_max, s_period = normalize_salary(
             job.get("salary_min"),
             job.get("salary_max"),
@@ -77,12 +97,15 @@ class JobTransformer:
         job["salary_max"] = s_max
         job["salary_period"] = s_period
 
-        # 5. Remote Inference (if not already set)
+        # 5. Remote Inference
+        # If the API didn't flag the job as remote, check the text for 'remote/WFH'.
         if not job["is_remote"] and cleaned_desc:
-            if "remote" in cleaned_desc.lower() or "work from home" in cleaned_desc.lower():
+            desc_lower = cleaned_desc.lower()
+            if "remote" in desc_lower or "work from home" in desc_lower:
                 job["is_remote"] = True
 
-        # 6. Enrichment (Silver-only fields)
+        # 6. Pipeline Enrichment (Silver-only derived fields)
+        # These fields are entirely computed by the pipeline logic.
         job["skills_tags"] = extract_skills(cleaned_desc)
         job["years_experience_min"] = extract_years_experience(cleaned_desc)
         job["seniority"] = classify_seniority(
@@ -92,5 +115,7 @@ class JobTransformer:
         return job
 
     def transform_batch(self, jobs: List[JobDict]) -> List[JobDict]:
-        """Transform a list of jobs."""
+        """
+        Helper to transform multiple records in a batch.
+        """
         return [self.transform(job) for job in jobs]
