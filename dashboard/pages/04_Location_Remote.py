@@ -30,6 +30,8 @@ st.markdown("""
     justify-content: center;
     margin-bottom: 12px;
 }
+/* Collapse extra space below Folium iframe */
+[data-testid="stCustomComponentV1"] { margin-bottom: 0 !important; }
 /* Province table — centred cells */
 .stTable table { width: 100%; border-collapse: collapse; }
 .stTable td, .stTable th {
@@ -350,8 +352,6 @@ st_folium(
 )
 
 # ── Below-map detail ──────────────────────────────────────────────────────────
-section_divider()
-
 # ── Province Breakdown ────────────────────────────────────────────────────────
 with st.container():
     st.markdown(
@@ -403,10 +403,7 @@ with st.container():
                 color="seniority",
                 orientation="h",
                 barmode="stack",
-                category_orders={
-                    "location_city": top_10[::-1],
-                    "seniority": _SEN_ORDER,
-                },
+                category_orders={"seniority": _SEN_ORDER},
                 color_discrete_map=_SEN_COLORS,
                 labels={"count": "Jobs", "location_city": "", "seniority": ""},
             )
@@ -435,7 +432,7 @@ with st.container():
             font=dict(color="#e2eaf4", size=12),
             margin={"r": 10, "t": 40, "l": 0, "b": 0}, height=420,
             xaxis=dict(showgrid=True, gridcolor="#1e3a5f", title="", tickfont=dict(color="#7fa8c9")),
-            yaxis=dict(title="", tickfont=dict(color="#e2eaf4")),
+            yaxis=dict(title="", tickfont=dict(color="#e2eaf4"), categoryorder="total descending"),
         )
         st.plotly_chart(fig_cities, use_container_width=True)
     else:
