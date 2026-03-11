@@ -49,6 +49,18 @@ def load_pipeline_runs() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600)
+def load_province_stats() -> pd.DataFrame:
+    """Gold layer: pre-aggregated province metrics from v_province_stats."""
+    client = get_client()
+    resp = client.table("v_province_stats").select("*").execute()
+    df = pd.DataFrame(resp.data)
+    for col in ("job_count", "remote_rate", "senior_rate", "avg_salary"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+@st.cache_data(ttl=3600)
 def load_skill_frequency() -> pd.DataFrame:
     client = get_client()
     resp = client.table("v_skill_frequency").select("*").execute()
