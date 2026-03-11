@@ -45,6 +45,15 @@ logger = logging.getLogger(__name__)
 
 def _clean_and_enrich_job(job: dict[str, Any]) -> dict[str, Any]:
     """Helper to clean and enrich a single job record."""
+    # ── Bronze: snapshot raw API values before any cleaning ──────────────────
+    job["location_city_raw"]    = job.get("location_city")
+    job["location_state_raw"]   = job.get("location_state")
+    job["location_country_raw"] = job.get("location_country")
+    job["salary_min_raw"]       = job.get("salary_min")
+    job["salary_max_raw"]       = job.get("salary_max")
+    job["salary_period_raw"]    = job.get("salary_period")
+
+    # ── Silver: clean and enrich ──────────────────────────────────────────────
     description = clean_description(job.get("job_description"))
     job["job_description"] = description
     job["skills_tags"] = extract_skills(description)

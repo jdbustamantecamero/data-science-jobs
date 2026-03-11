@@ -1,21 +1,8 @@
 -- UPGRADE SCRIPT: safe to skip on fresh installs (01_schema.sql + 04_views.sql already include these changes).
 
--- Remove Apollo enrichment artifacts.
--- Apollo was removed from the pipeline (free tier: 50 enrichments/month —
--- too limiting for weekly runs across hundreds of jobs).
--- Company records are now minimal stubs: domain + name only.
---
--- Safe to re-run: all statements use IF EXISTS guards.
+-- Add Bronze (_raw) columns to v_jobs_enriched.
+-- Raw columns capture original API values before pipeline cleaning.
 
--- Drop index first (must precede column drop)
-DROP INDEX IF EXISTS idx_companies_apollo_enriched;
-
--- Drop columns from companies table
-ALTER TABLE companies
-    DROP COLUMN IF EXISTS apollo_enriched,
-    DROP COLUMN IF EXISTS apollo_enriched_at;
-
--- Recreate v_jobs_enriched without apollo_enriched
 DROP VIEW IF EXISTS v_jobs_enriched;
 CREATE VIEW v_jobs_enriched AS
 SELECT
@@ -24,15 +11,25 @@ SELECT
     jp.title,
     jp.company_name,
     jp.company_domain,
+    -- Silver (cleaned)
     jp.location_city,
     jp.location_state,
     jp.location_country,
+    -- Bronze (raw API values)
+    jp.location_city_raw,
+    jp.location_state_raw,
+    jp.location_country_raw,
     jp.is_remote,
     jp.employment_type,
+    -- Silver (cleaned)
     jp.salary_min,
     jp.salary_max,
     jp.salary_currency,
     jp.salary_period,
+    -- Bronze (raw API values)
+    jp.salary_min_raw,
+    jp.salary_max_raw,
+    jp.salary_period_raw,
     jp.job_description,
     jp.job_apply_link,
     jp.employer_logo,
