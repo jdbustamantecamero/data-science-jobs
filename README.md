@@ -2,193 +2,80 @@
 
 Automated, zero-cost pipeline that fetches **Data Scientist** job postings weekly from four Canadian job APIs, parses skills and seniority from descriptions, persists everything to Supabase (PostgreSQL), and serves insights on a public Streamlit dashboard.
 
-## Architecture
+## Architecture (3-Stage Medallion)
 
 ```
-JSearch API  ─┐
-Adzuna API   ─┼─→ pipeline/ → Supabase (PostgreSQL) → Streamlit Dashboard
-TheirStack   ─┤        ↑
-SerpAPI      ─┘  GitHub Actions (weekly cron, Monday 06:00 UTC)
+Ingest (Bronze) ──→ Transform (Silver) ──→ Promote (Gold)
+      ↑                    ↑                    ↑
+Raw API Data         Cleaned & Enriched      Aggregated Views
+(16 _raw columns)    (Location, Salary)     (Dashboard Ready)
 ```
 
-### Medallion ETL
+### Medallion ETL Layers
 
 | Layer | Location | What |
 |---|---|---|
-| **Bronze** | `job_postings.*_raw` columns | Original API values, never modified after insert |
-| **Silver** | `job_postings` core columns | Cleaned, normalised, enriched |
-| **Gold** | Supabase views | Pre-aggregated for dashboard consumption |
+| **Bronze** | `job_postings.*_raw` | 100% raw capture (16 columns). Original API values, never modified. |
+| **Silver** | `job_postings` core | Cleaned, normalised, and enriched values (Skills, Seniority). |
+| **Gold** | Supabase views | Pre-aggregated logic (e.g., `v_province_stats`) for the dashboard. |
 
-### Pipeline flow
+### Pipeline Flow
 
-```
-1. Fetch     JSearch + Adzuna + TheirStack + SerpAPI (parallel) → combined list
-2. Dedup     Bulk WHERE job_id = ANY(array) against job_postings
-3. Bronze    Snapshot raw location + salary values before any cleaning
-4. Silver    Strip HTML · normalise location · convert hourly salary · extract years_experience · classify seniority · extract skills
-5. Stubs     Upsert company domain+name rows (ON CONFLICT DO NOTHING)
-6. Upsert    job_postings with on_conflict=job_id (deduped within batch first)
-7. Merge     merge_manual_enrichment() fills NULLs from job_manual_enrichment
-8. Log       Update pipeline_runs: status, counts, duration
-```
-
-## Data Sources
-
-| Source | Auth | Free tier | Notes |
-|---|---|---|---|
-| [JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) | RapidAPI key | 200 req/month | Provides employer website → domain |
-| [Adzuna](https://developer.adzuna.com) | App ID + App Key | 1,000 req/month | No employer website; remote inferred from text |
-| [TheirStack](https://theirstack.com) | Bearer token | Varies by plan | POST API; provides company URL and logo |
-| [SerpAPI](https://serpapi.com) | API key | 100 searches/month | Google Jobs scraper; salary/location parsed from strings; posted_at converted from relative time using EST |
+1. **Ingest**: All providers (JSearch, Adzuna, TheirStack, SerpAPI) fetch in parallel via `BaseJobSource` subclasses.
+2. **Dedup**: Bulk ID check against Supabase to skip existing postings.
+3. **Transform**: `JobTransformer` applies cleaning (HTML strip, location normalization, salary conversion) and enrichment (skills/seniority).
+4. **Load**: Bulk upsert to Supabase with company stub handling.
+5. **Promote**: Apply manual enrichments and refresh views for the Gold layer.
 
 ## Setup
 
 ### 1. Supabase
 
-1. Create a free project at [supabase.com](https://supabase.com)
-2. In the SQL Editor, run the migration files **in order**:
-   - `sql/01_schema.sql`
-   - `sql/02_indexes.sql`
-   - `sql/03_rls_policies.sql`
-   - `sql/04_views.sql`
-   - `sql/05_manual_enrichment.sql`
-   - `sql/06_add_seniority_experience.sql`
-   - `sql/07_refresh_enriched_view.sql`
-   - `sql/08_remove_apollo.sql`
-   - `sql/09_add_bronze_raw_columns.sql`
-   - `sql/10_update_enriched_view_with_raw.sql`
-3. Copy your **Project URL**, **service_role key**, and **anon key** from Settings → API
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In the SQL Editor, run the canonical migration files **in order**:
+   - `sql/01_schema.sql` (Tables: jobs, companies, runs)
+   - `sql/02_indexes.sql` (Performance & GIN indexes)
+   - `sql/03_rls_policies.sql` (Security)
+   - `sql/04_views.sql` (Gold layer views)
 
-### 2. API Keys
-
-- **JSearch**: Subscribe at [RapidAPI JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
-- **Adzuna**: Register at [developer.adzuna.com](https://developer.adzuna.com) — get App ID + App Key
-- **TheirStack**: Register at [theirstack.com](https://theirstack.com) — get API key
-- **SerpAPI**: Register at [serpapi.com](https://serpapi.com) — get API key
-
-### 3. Local development
+### 2. Local Development
 
 ```bash
 cp .env.example .env
-# Fill in all values in .env
+# Fill in Supabase and API keys in .env
 
 pip install -r requirements.txt
 
-# Run the pipeline once
+# Run the pipeline
 python -m pipeline.run_pipeline
 
 # Run the dashboard
 streamlit run dashboard/app.py
 
-# Run tests
-pytest tests/
-
-# Explore data in Jupyter
-venv/bin/jupyter notebook notebooks/explore.ipynb
+# Analysis Notebooks
+# 01_bronze_quality.ipynb - Verifying API mapping
+# 02_silver_insights.ipynb - Market trends & salary viz
 ```
-
-### 4. GitHub Actions
-
-1. Push this repo to GitHub
-2. Go to **Settings → Secrets → Actions** and add:
-   - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`
-   - `JSEARCH_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`
-   - `THEIRSTACK_API_KEY`, `SERPAPI_API_KEY`
-3. Trigger manually via **Actions → Weekly Data Science Jobs Pipeline → Run workflow**
-
-The workflow runs on two triggers:
-- **Push / PR to main** — runs `pytest tests/` only (no secrets needed)
-- **Monday 06:00 UTC / manual** — runs tests first, then the pipeline if tests pass
-
-### 5. Streamlit Community Cloud
-
-1. Go to [share.streamlit.io](https://share.streamlit.io) → New app
-2. Point to this repo, branch `main`, main file `dashboard/app.py`
-3. Add secrets (anon key only — **never** the service key):
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
-
-## Running Tests
-
-```bash
-pytest tests/
-```
-
-Tests cover all four API client normalisers, the deduplication logic, and the Silver-layer data cleaner. All tests use mocked HTTP and a mock Supabase client — no real API keys or DB connection needed.
 
 ## Project Structure
 
 ```
 DataScienceJobs/
-├── .github/workflows/
-│   └── weekly_pipeline.yml          # CI: tests on push/PR; pipeline gated on tests
-├── .streamlit/
-│   └── config.toml                  # Native dark theme (bg, text, primary colour, font)
 ├── pipeline/
-│   ├── config.py                    # Centralised env var loading
-│   ├── jsearch_client.py            # JSearch fetch + pagination
-│   ├── adzuna_client.py             # Adzuna fetch + pagination
-│   ├── theirstack_client.py         # TheirStack POST fetch + pagination
-│   ├── serpapi_client.py            # SerpAPI Google Jobs; salary/location/date parsed from strings
-│   ├── deduplication.py             # Bulk job_id dedup against DB
-│   ├── data_cleaner.py              # HTML strip, location normalisation, salary conversion, seniority
-│   ├── skills_parser.py             # Keyword extraction — 73 skills
-│   ├── supabase_client.py           # Upsert helpers + pipeline run tracking
-│   ├── run_pipeline.py              # Main entry point: Bronze snapshot + Silver cleaning
-│   ├── backfill_data.py             # One-time: re-run all enrichment on existing rows
-│   └── explore_data_quality.py      # Diagnostic report on field coverage
+│   ├── providers/          # Class-based API clients (JSearch, Adzuna, etc.)
+│   ├── models.py           # JobDict schema contract
+│   ├── transformer.py      # JobTransformer (Bronze -> Silver logic)
+│   ├── data_cleaner.py     # Location/Salary normalization helpers
+│   ├── skills_parser.py    # Scalable keyword extraction (73 skills)
+│   ├── run_pipeline.py     # Main Orchestrator (Ingest -> Transform -> Promote)
+│   └── ...
 ├── dashboard/
-│   ├── app.py                       # Streamlit entry point
-│   ├── utils.py                     # Cached data loaders (env → st.secrets fallback)
-│   ├── ui_components.py             # Design system: colours, apply_theme(), kpi_row(), page_header(), etc.
-│   ├── view_template.py             # Annotated starter template for new pages
-│   └── pages/
-│       ├── 01_Overview.py           # KPIs, seniority pie, weekly trend, pipeline runs
-│       ├── 02_Companies.py          # Top companies, seniority dist, employment type
-│       ├── 03_Salaries.py           # Box plot, histogram, top-paying roles
-│       ├── 04_Location_Remote.py    # Canada choropleth map — 4 switchable metrics
-│       └── 05_Skills.py             # Skills explorer — 73 skills, 4 categories, CSS bar chart
-├── notebooks/
-│   └── explore.ipynb                # Ad-hoc data exploration + column provenance table
+│   ├── pages/              # Streamlit pages (Overview, Salaries, Skills, etc.)
+│   └── ui_components.py    # Unified design system
 ├── sql/
-│   ├── 01_schema.sql                # Tables: job_postings, companies, pipeline_runs
-│   ├── 02_indexes.sql               # Performance indexes incl. GIN on skills_tags
-│   ├── 03_rls_policies.sql          # anon = SELECT only; service_role = full access
-│   ├── 04_views.sql                 # v_jobs_enriched, v_weekly_trends, v_skill_frequency
-│   ├── 05_manual_enrichment.sql     # job_manual_enrichment table + merge function
-│   ├── 06_add_seniority_experience.sql  # Adds years_experience_min + seniority columns
-│   ├── 07_refresh_enriched_view.sql # Recreates view to pick up new columns
-│   ├── 08_remove_apollo.sql         # Removes Apollo enrichment columns + index
-│   ├── 09_add_bronze_raw_columns.sql    # Bronze layer: *_raw columns for location + salary
-│   └── 10_update_enriched_view_with_raw.sql  # Exposes Bronze columns in v_jobs_enriched
-├── tests/
-│   ├── test_jsearch_client.py
-│   ├── test_adzuna_client.py
-│   ├── test_theirstack_client.py
-│   ├── test_deduplication.py
-│   ├── test_serpapi_client.py
-│   └── test_data_cleaner.py
-├── .env.example
-├── .gitignore
-├── requirements.txt
-└── README.md
+│   └── 01-04_*.sql         # Canonical squashed migrations
+├── notebooks/
+│   ├── 01_bronze_quality.ipynb
+│   └── 02_silver_insights.ipynb
+└── tests/                  # Mocked unit tests for all components
 ```
-
-## Key Design Decisions
-
-| Decision | Rationale |
-|---|---|
-| Medallion architecture | Bronze `_raw` columns preserve original API values; Silver columns hold cleaned values; enables audit trail and re-processing without re-fetching |
-| `company_domain` as join key | Normalised from employer URL; more reliable than company name which varies in casing/punctuation |
-| Upsert on `job_id` | Safely refreshes salary/details if a source updates an existing posting |
-| Batch dedup before upsert | One `WHERE job_id = ANY(array)` query; also dedupes within-batch to avoid Supabase error 21000 |
-| `adzuna_` / `theirstack_` / `serpapi_` prefixes | Guarantees no `job_id` collision across the four sources |
-| Location normalisation in Silver | Accent stripping, province inference, city alias resolution — all reversible against Bronze |
-| Hourly salary → annual conversion | Rates < 250 with period=HOUR multiplied by 2080; original preserved in `_raw` columns |
-| Seniority from title then years | Title keywords take precedence; years-of-experience brackets used as fallback; "Mid" as default |
-| Anon key in dashboard | Read-only access even if Streamlit secrets leak; service key stays in GitHub Actions only |
-| No third-party enrichment | Company records are minimal stubs (domain + name) derived directly from job APIs |
-| Supabase MCP | DDL applied programmatically via `apply_migration` — no manual SQL Editor needed |
-| `.streamlit/config.toml` for theme | Native Streamlit theming handles background, text, and primary colour — no CSS injection needed for base palette |
-| `ui_components.py` design system | Single source of truth for colours and layout helpers; pages call `apply_theme()` and helpers rather than writing raw CSS |
-| Tests gate the pipeline | CI runs `pytest` on every push/PR; Monday cron only proceeds if tests pass |
