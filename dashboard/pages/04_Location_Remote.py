@@ -13,12 +13,32 @@ import plotly.express as px
 import streamlit as st
 from streamlit_folium import st_folium
 
-from ui_components import apply_theme, page_header, section_divider
+from ui_components import apply_theme, center_layout, page_header, section_divider
 from utils import load_jobs, load_province_stats
 
 # ── page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Location", page_icon="🗺️", layout="wide")
 apply_theme()
+center_layout(960)
+
+# Center the metric radio + style the province table
+st.markdown("""
+<style>
+/* Metric radio — centred */
+[data-testid="stMainBlockContainer"] div[data-testid="stRadio"] {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 12px;
+}
+/* Province table — centred cells */
+.stTable table { width: 100%; border-collapse: collapse; }
+.stTable td, .stTable th {
+    text-align: center !important;
+    padding: 8px 14px !important;
+    font-size: 0.875rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ── constants ─────────────────────────────────────────────────────────────────
 ALL_PROVINCES = [
@@ -68,6 +88,17 @@ METRIC_CONFIG = {
         "note": "Only ~15% of postings include salary data. Unshaded provinces have no salary records.",
         "accent": "#10b981",
     },
+}
+
+# ── Seniority order + colours (shared by Top Cities chart) ────────────────────
+_SEN_ORDER = ["Intern", "Junior", "Mid", "Senior", "Lead", "Director+"]
+_SEN_COLORS = {
+    "Intern":    "#94a3b8",
+    "Junior":    "#60a5fa",
+    "Mid":       "#3b82f6",
+    "Senior":    "#f472b6",
+    "Lead":      "#f59e0b",
+    "Director+": "#10b981",
 }
 
 # ── City coordinates — covers the Canadian cities most likely in the dataset ──
@@ -139,7 +170,6 @@ def _inject_stats(geojson: dict, stats_df: pd.DataFrame) -> dict:
     idx = stats_df.set_index("province")
     for feat in geo["features"]:
         name = feat["properties"]["name"]
-        # Set safe defaults
         feat["properties"].update({"_jobs": "—", "_remote": "—", "_senior": "—", "_salary": "—"})
         if name not in idx.index:
             continue
@@ -163,40 +193,27 @@ def _build_map(
     show_cities: bool,
 ) -> folium.Map:
     """Build and return the Folium map for the current metric + city toggle."""
-    m = folium.Map(
-        location=[56.1, -96.0],
-        zoom_start=3,
-        tiles=None,
-        zoom_control=True,
-    )
+    m = folium.Map(location=[56.1, -96.0], zoom_start=3, tiles=None, zoom_control=True)
 
-    # ── CartoDB Dark Matter tiles ─────────────────────────────────────────────
     folium.TileLayer(
-        tiles="CartoDB dark_matter",
-        name="Basemap",
-        overlay=False,
-        control=False,
+        tiles="CartoDB dark_matter", name="Basemap", overlay=False, control=False,
     ).add_to(m)
 
-    # ── Colormap matching METRIC_CONFIG colorscale ────────────────────────────
+    # Colormap matching METRIC_CONFIG colorscale
     col_series = stats_df[cfg["col"]].dropna()
     z_min = float(col_series.min()) if not col_series.empty else 0.0
     z_max = float(col_series.max()) if not col_series.empty else 1.0
     if z_min == z_max:
         z_max = z_min + 1.0
 
-    positions  = [p for p, _ in cfg["colorscale"]]
-    hex_colors = [c for _, c in cfg["colorscale"]]
     colormap = cm.LinearColormap(
-        colors=hex_colors,
-        index=[z_min + p * (z_max - z_min) for p in positions],
-        vmin=z_min,
-        vmax=z_max,
-        caption=cfg["label"],
+        colors=[c for _, c in cfg["colorscale"]],
+        index=[z_min + p * (z_max - z_min) for p, _ in cfg["colorscale"]],
+        vmin=z_min, vmax=z_max, caption=cfg["label"],
     )
     colormap.add_to(m)
 
-    # ── Province choropleth layer ─────────────────────────────────────────────
+    # Province choropleth
     geo_with_stats = _inject_stats(geojson, stats_df)
     province_vals  = stats_df.set_index("province")[cfg["col"]].to_dict()
 
@@ -208,46 +225,36 @@ def _build_map(
                 if f["properties"]["name"] in pv
                 and pd.notna(pv.get(f["properties"]["name"]))
                 else "#0d2137",
-            "color":       "rgba(255,255,255,0.3)",
-            "weight":      0.8,
+            "color": "rgba(255,255,255,0.3)",
+            "weight": 0.8,
             "fillOpacity": 0.65,
         },
         tooltip=folium.GeoJsonTooltip(
             fields=["name", "_jobs", "_remote", "_senior", "_salary"],
             aliases=["Province", "Jobs", "Remote", "Senior+", "Avg Salary"],
             style=(
-                "background-color:#102035;"
-                "color:#e2eaf4;"
-                "border:1px solid #1e3a5f;"
-                "border-radius:6px;"
-                "padding:6px 12px;"
-                "font-family:system-ui,sans-serif;"
-                "font-size:12px;"
+                "background-color:#102035;color:#e2eaf4;"
+                "border:1px solid #1e3a5f;border-radius:6px;"
+                "padding:6px 12px;font-family:system-ui,sans-serif;font-size:12px;"
             ),
             sticky=True,
         ),
     ).add_to(province_fg)
     province_fg.add_to(m)
 
-    # ── City dot density layer ────────────────────────────────────────────────
+    # City dot density
     if show_cities and "location_city" in jobs_df.columns:
         city_counts = jobs_df["location_city"].dropna().value_counts()
-
         city_fg = folium.FeatureGroup(name="City density", show=True)
         for city, count in city_counts.items():
             coords = CITY_COORDS.get(city)
             if coords is None:
                 continue
-            # Log scale: small cities still visible, large cities don't dwarf everything
             radius = max(4, min(24, 4 + math.log1p(count) * 3.5))
             folium.CircleMarker(
-                location=coords,
-                radius=radius,
-                color="white",
-                weight=0.5,
-                fill=True,
-                fill_color=cfg["accent"],
-                fill_opacity=0.75,
+                location=coords, radius=radius,
+                color="white", weight=0.5,
+                fill=True, fill_color=cfg["accent"], fill_opacity=0.75,
                 tooltip=(
                     f"<b style='font-family:system-ui'>{city}</b>"
                     f"<br><span style='color:#a8c0d6'>{count:,} jobs</span>"
@@ -280,7 +287,7 @@ with st.sidebar:
     section_divider()
     show_cities = st.checkbox("Show city dots", value=True)
 
-# ── Timeframe filter (KPIs + city dots only — province map is always all-time) ─
+# ── Timeframe filter ───────────────────────────────────────────────────────────
 now_utc = pd.Timestamp.now(tz="UTC")
 df = df_all.copy()
 if timeframe == "Last 30 Days":
@@ -294,26 +301,26 @@ elif timeframe == "YTD 2026":
 total_with_province = int(stats["job_count"].sum()) if not stats.empty else 0
 provinces_active    = int((stats["job_count"] > 0).sum()) if not stats.empty else 0
 
-remote_known   = df[df["is_remote"].notna()]
+remote_known    = df[df["is_remote"].notna()]
 national_remote = (
     round(100 * remote_known["is_remote"].astype(bool).sum() / len(remote_known), 1)
     if not remote_known.empty else 0.0
 )
-senior_known   = df[df["seniority"].notna()] if "seniority" in df.columns else pd.DataFrame()
+senior_known    = df[df["seniority"].notna()] if "seniority" in df.columns else pd.DataFrame()
 national_senior = (
     round(100 * senior_known["seniority"].isin(SENIOR_LABELS).sum() / len(senior_known), 1)
     if not senior_known.empty else 0.0
 )
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ── Header + KPIs ─────────────────────────────────────────────────────────────
 page_header(
     "🗺️ Regional Job Market",
     f"Data Science roles across Canada · Map: All Time · KPIs & Cities: {timeframe}",
 )
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Jobs with Location", f"{total_with_province:,}")
-k2.metric("Provinces Active",   str(provinces_active))
+k1.metric("Jobs with Location",    f"{total_with_province:,}")
+k2.metric("Provinces Active",      str(provinces_active))
 k3.metric("National Remote Rate",  f"{national_remote:.0f}%")
 k4.metric("National Senior+ Rate", f"{national_senior:.0f}%")
 
@@ -330,7 +337,6 @@ if cfg["note"]:
 
 # ── Folium map ────────────────────────────────────────────────────────────────
 geojson = load_geojson()
-
 complete_stats = pd.DataFrame({"province": ALL_PROVINCES}).merge(
     stats, on="province", how="left"
 )
@@ -348,34 +354,88 @@ section_divider()
 
 col_left, col_right = st.columns([1, 1], gap="large")
 
+# ── Province Breakdown ────────────────────────────────────────────────────────
 with col_left:
-    st.subheader("Province Breakdown")
-    table_df = stats[["province", "job_count", "remote_rate", "senior_rate", "avg_salary"]].copy()
-    table_df["avg_salary"]  = table_df["avg_salary"].apply(lambda v: f"${v/1000:.0f}k" if pd.notna(v) else "—")
-    table_df["remote_rate"] = table_df["remote_rate"].apply(lambda v: f"{v:.0f}%" if pd.notna(v) else "—")
-    table_df["senior_rate"] = table_df["senior_rate"].apply(lambda v: f"{v:.0f}%" if pd.notna(v) else "—")
-    table_df["job_count"]   = table_df["job_count"].astype(int)
-    table_df.columns = ["Province", "Jobs", "Remote", "Senior+", "Avg Salary"]
-    st.dataframe(table_df, use_container_width=True, hide_index=True)
+    st.markdown(
+        "<h3 style='text-align:center;margin-bottom:8px'>Province Breakdown</h3>",
+        unsafe_allow_html=True,
+    )
+    # Median salary computed locally from the timeframe-filtered jobs
+    median_sal = (
+        df_all[df_all["salary_min"].notna() & df_all["location_state"].notna()]
+        .groupby("location_state")["salary_min"]
+        .median()
+        .reset_index()
+        .rename(columns={"location_state": "province", "salary_min": "median_salary"})
+    )
+    table_df = (
+        stats[["province", "job_count", "remote_rate", "senior_rate"]]
+        .merge(median_sal, on="province", how="left")
+        .copy()
+    )
+    table_df["remote_rate"]    = table_df["remote_rate"].apply(lambda v: f"{v:.0f}%" if pd.notna(v) else "—")
+    table_df["senior_rate"]    = table_df["senior_rate"].apply(lambda v: f"{v:.0f}%" if pd.notna(v) else "—")
+    table_df["median_salary"]  = table_df["median_salary"].apply(lambda v: f"${v/1000:.0f}k" if pd.notna(v) else "—")
+    table_df["job_count"]      = table_df["job_count"].astype(int)
+    table_df.columns = ["Province", "Jobs", "Remote", "Senior+", "Median Salary"]
+    st.table(table_df.set_index("Province"))
 
+# ── Top Cities — stacked by seniority ────────────────────────────────────────
 with col_right:
-    st.subheader("Top Cities")
+    st.markdown(
+        "<h3 style='text-align:center;margin-bottom:8px'>Top Cities</h3>",
+        unsafe_allow_html=True,
+    )
     city_df = df[df["location_city"].notna()]
     if not city_df.empty:
-        top_cities = city_df["location_city"].value_counts().head(10).reset_index()
-        top_cities.columns = ["city", "count"]
-        fig_cities = px.bar(
-            top_cities, x="count", y="city", orientation="h",
-            color="count", color_continuous_scale=cfg["colorscale"],
-        )
+        top_10 = city_df["location_city"].value_counts().head(10).index.tolist()
+
+        if "seniority" in city_df.columns and city_df["seniority"].notna().any():
+            cs = (
+                city_df[city_df["location_city"].isin(top_10)]
+                .groupby(["location_city", "seniority"])
+                .size()
+                .reset_index(name="count")
+            )
+            fig_cities = px.bar(
+                cs,
+                x="count", y="location_city",
+                color="seniority",
+                orientation="h",
+                barmode="stack",
+                category_orders={
+                    "location_city": top_10[::-1],
+                    "seniority": _SEN_ORDER,
+                },
+                color_discrete_map=_SEN_COLORS,
+                labels={"count": "Jobs", "location_city": "", "seniority": ""},
+            )
+            fig_cities.update_layout(
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="center", x=0.5,
+                    font=dict(color="#a8c0d6", size=10),
+                    title_text="",
+                ),
+            )
+        else:
+            # Fallback: single-series bar if seniority not available
+            top_cities = city_df["location_city"].value_counts().head(10).reset_index()
+            top_cities.columns = ["city", "count"]
+            fig_cities = px.bar(
+                top_cities, x="count", y="city", orientation="h",
+                color="count", color_continuous_scale=cfg["colorscale"],
+                labels={"count": "Jobs", "city": ""},
+            )
+            fig_cities.update_layout(coloraxis_showscale=False)
+
         fig_cities.update_traces(hovertemplate="<b>%{y}</b><br>%{x} jobs<extra></extra>")
         fig_cities.update_layout(
             paper_bgcolor="#0d1b2a", plot_bgcolor="#102035",
             font=dict(color="#e2eaf4", size=12),
-            margin={"r": 10, "t": 0, "l": 0, "b": 0}, height=320,
+            margin={"r": 10, "t": 40, "l": 0, "b": 0}, height=360,
             xaxis=dict(showgrid=True, gridcolor="#1e3a5f", title="", tickfont=dict(color="#7fa8c9")),
-            yaxis=dict(title="", tickfont=dict(color="#e2eaf4"), categoryorder="total ascending"),
-            coloraxis_showscale=False,
+            yaxis=dict(title="", tickfont=dict(color="#e2eaf4")),
         )
         st.plotly_chart(fig_cities, use_container_width=True)
     else:
