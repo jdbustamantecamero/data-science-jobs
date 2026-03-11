@@ -3,14 +3,12 @@
 -- ============================================================
 -- Run this on a fresh Supabase project before any other file.
 -- Existing installs: safe to re-run (all guards use IF NOT EXISTS).
--- Migration files 06–10 are upgrade scripts for existing installs
--- and are no-ops here since every column is already defined below.
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ── companies ─────────────────────────────────────────────────────────────────
--- Minimal stubs: domain + name only. No third-party enrichment.
+-- Minimal stubs: domain + name only.
 CREATE TABLE IF NOT EXISTS companies (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     domain         TEXT UNIQUE NOT NULL,
@@ -28,47 +26,60 @@ CREATE TABLE IF NOT EXISTS companies (
 
 -- ── job_postings ──────────────────────────────────────────────────────────────
 -- Medallion layout:
---   Bronze (*_raw) — original API values, written once, never updated
---   Silver          — cleaned / normalised values used by the dashboard
+--   🥉 Bronze (*_raw) — original API values, written once, never updated
+--   🥈 Silver          — cleaned / normalised values used by the dashboard
 CREATE TABLE IF NOT EXISTS job_postings (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id               TEXT UNIQUE NOT NULL,
+    
+    -- Core Identity
     title                TEXT,
+    title_raw            TEXT,
     company_name         TEXT,
+    company_name_raw     TEXT,
     company_domain       TEXT REFERENCES companies(domain) ON DELETE SET NULL,
+    company_domain_raw   TEXT,
 
-    -- Silver: cleaned location (accent-stripped, province inferred, aliases resolved)
+    -- Location (Silver & Bronze)
     location_city        TEXT,
-    location_state       TEXT,
-    location_country     TEXT,
-    -- Bronze: original API location values
     location_city_raw    TEXT,
+    location_state       TEXT,
     location_state_raw   TEXT,
+    location_country     TEXT,
     location_country_raw TEXT,
-
     is_remote            BOOLEAN,
-    employment_type      TEXT,
+    is_remote_raw        BOOLEAN,
 
-    -- Silver: cleaned salary (hourly rates converted to annual × 2080)
+    -- Employment
+    employment_type      TEXT,
+    employment_type_raw  TEXT,
+
+    -- Salary (Silver & Bronze)
     salary_min           NUMERIC,
-    salary_max           NUMERIC,
-    salary_currency      TEXT DEFAULT 'CAD',
-    salary_period        TEXT,
-    -- Bronze: original API salary values
     salary_min_raw       NUMERIC,
+    salary_max           NUMERIC,
     salary_max_raw       NUMERIC,
+    salary_currency      TEXT DEFAULT 'CAD',
+    salary_currency_raw  TEXT,
+    salary_period        TEXT,
     salary_period_raw    TEXT,
 
+    -- Description & Assets
     job_description      TEXT,
+    job_description_raw  TEXT,
     job_apply_link       TEXT,
+    job_apply_link_raw   TEXT,
     employer_logo        TEXT,
+    employer_logo_raw    TEXT,
     skills_tags          TEXT[],
 
-    -- Pipeline-derived (no API equivalent)
+    -- Pipeline-derived Enrichment
     seniority            TEXT,
     years_experience_min INTEGER,
 
+    -- Timestamps
     posted_at            TIMESTAMPTZ,
+    posted_at_raw        TEXT,
     fetched_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
