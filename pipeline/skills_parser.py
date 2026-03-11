@@ -4,24 +4,44 @@ from __future__ import annotations
 import re
 
 SKILLS: list[str] = [
-    "python", "sql", "r", "scala", "java", "julia",
-    "spark", "hadoop", "kafka", "airflow", "dbt", "luigi",
+    # ── Languages ──────────────────────────────────────────────────────────────
+    "python", "sql", "r", "scala", "java", "julia", "sas", "matlab", "bash",
+    # ── ML / Stats concepts ────────────────────────────────────────────────────
+    "machine learning", "deep learning", "statistics", "nlp",
+    "computer vision", "llm", "generative ai", "reinforcement learning",
+    "time series", "a/b testing", "feature engineering",
+    "transformers", "anomaly detection", "forecasting",
+    # ── ML frameworks & libraries ─────────────────────────────────────────────
     "pytorch", "tensorflow", "keras", "scikit-learn", "xgboost", "lightgbm",
-    "pandas", "numpy", "matplotlib", "seaborn", "plotly",
-    "aws", "gcp", "azure", "databricks", "snowflake", "bigquery", "redshift",
-    "docker", "kubernetes", "mlflow", "kubeflow",
-    "tableau", "power bi", "looker",
-    "git", "linux",
-    "statistics", "machine learning", "deep learning", "nlp",
-    "computer vision", "llm", "generative ai",
+    "hugging face", "langchain",
+    # ── Data / analytics libraries ────────────────────────────────────────────
+    "pandas", "numpy", "scipy", "matplotlib", "seaborn", "plotly", "dask",
+    # ── Cloud platforms ────────────────────────────────────────────────────────
+    "aws", "gcp", "azure", "sagemaker", "databricks",
+    # ── Data warehouses & databases ───────────────────────────────────────────
+    "snowflake", "bigquery", "redshift", "postgresql", "mysql",
+    "mongodb", "elasticsearch",
+    # ── Orchestration / pipelines ─────────────────────────────────────────────
+    "spark", "hadoop", "kafka", "airflow", "dbt", "luigi", "prefect", "dagster",
+    # ── MLOps / model serving ─────────────────────────────────────────────────
+    "docker", "kubernetes", "mlflow", "kubeflow", "wandb", "fastapi", "flask",
+    # ── BI / Visualisation ────────────────────────────────────────────────────
+    "tableau", "power bi", "looker", "excel", "qlik",
+    # ── DevOps / systems ──────────────────────────────────────────────────────
+    "git", "linux", "terraform",
 ]
 
-# Pre-compile patterns (word-boundary aware, case-insensitive)
-_PATTERNS = [(skill, re.compile(r"\b" + re.escape(skill) + r"\b", re.IGNORECASE)) for skill in SKILLS]
+# Pre-compile a single alternated regex for all skills (word-boundary aware, case-insensitive)
+_SKILLS_REGEX = re.compile(
+    r"\b(" + "|".join(re.escape(s) for s in SKILLS) + r")\b",
+    re.IGNORECASE,
+)
 
 
 def extract_skills(text: str | None) -> list[str]:
-    """Return list of matched skill keywords found in *text*."""
+    """Return list of unique matched skill keywords found in *text*."""
     if not text:
         return []
-    return [skill for skill, pattern in _PATTERNS if pattern.search(text)]
+    # Use findall with the combined regex, then lower() and unique the results.
+    matches = _SKILLS_REGEX.findall(text)
+    return sorted(list({m.lower() for m in matches}))

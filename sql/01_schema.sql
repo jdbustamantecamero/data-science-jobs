@@ -13,8 +13,6 @@ CREATE TABLE IF NOT EXISTS companies (
     website_url         TEXT,
     city                TEXT,
     country             TEXT,
-    apollo_enriched     BOOLEAN NOT NULL DEFAULT FALSE,
-    apollo_enriched_at  TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

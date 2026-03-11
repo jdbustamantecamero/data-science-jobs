@@ -31,3 +31,4 @@ jobs:
           ADZUNA_APP_ID:        ${{ secrets.ADZUNA_APP_ID }}
           ADZUNA_APP_KEY:       ${{ secrets.ADZUNA_APP_KEY }}
           THEIRSTACK_API_KEY:   ${{ secrets.THEIRSTACK_API_KEY }}
+          SERPAPI_API_KEY:      ${{ secrets.SERPAPI_API_KEY }}

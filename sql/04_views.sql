@@ -8,8 +8,7 @@ SELECT
     c.linkedin_url      AS company_linkedin_url,
     c.website_url       AS company_website_url,
     c.city              AS company_city,
-    c.country           AS company_country,
-    c.apollo_enriched
+    c.country           AS company_country
 FROM job_postings jp
 LEFT JOIN companies c ON jp.company_domain = c.domain;
 

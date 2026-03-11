@@ -6,5 +6,4 @@ CREATE INDEX IF NOT EXISTS idx_job_postings_employment_type ON job_postings(empl
 CREATE INDEX IF NOT EXISTS idx_job_postings_location_state ON job_postings(location_state);
 CREATE INDEX IF NOT EXISTS idx_job_postings_skills_tags    ON job_postings USING GIN(skills_tags);
 
--- companies indexes
-CREATE INDEX IF NOT EXISTS idx_companies_apollo_enriched ON companies(apollo_enriched);
+-- companies indexes (none currently needed)

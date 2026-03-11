@@ -10,8 +10,7 @@ st.set_page_config(
 
 st.title("📊 Data Science Jobs Dashboard")
 st.markdown(
-    "Weekly-refreshed insights from JSearch job postings, "
-    "enriched with Apollo company data and stored in Supabase."
+    "Weekly-refreshed insights from Canadian job postings."
 )
 st.markdown("---")
 st.info("Select a page from the sidebar to explore the data.")
