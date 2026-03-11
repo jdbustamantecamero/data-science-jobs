@@ -5,7 +5,7 @@ import html as _html
 import pandas as pd
 import streamlit as st
 
-from ui_components import SUBTEXT, TEXT, apply_theme, kpi_row
+from ui_components import SUBTEXT, TEXT, apply_theme, center_layout, kpi_row
 from utils import load_jobs
 
 # ── page config ──────────────────────────────────────────────────────────────
@@ -13,6 +13,7 @@ st.set_page_config(page_title="Skills", page_icon="🛠️", layout="wide")
 
 # ── theme CSS ─────────────────────────────────────────────────────────────────
 apply_theme()
+center_layout()
 
 # ── skill display names (lowercase key → proper title) ───────────────────────
 SKILL_DISPLAY_NAMES: dict[str, str] = {

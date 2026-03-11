@@ -151,6 +151,29 @@ div[data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {{
 """
 
 
+def center_layout(max_width: int = 920) -> None:
+    """Constrain and centre the main content block.
+
+    Call after ``apply_theme()`` on pages where centred content looks better
+    than the default left-aligned wide layout (e.g. Skills, Salaries).
+    Has no effect on the sidebar — only the main content area is affected.
+
+    Parameters
+    ----------
+    max_width:
+        Maximum content width in pixels. 920 works well for chart-heavy pages
+        on a 1440px laptop screen with the sidebar open.
+    """
+    st.markdown(
+        f"<style>[data-testid='stMainBlockContainer'] {{"
+        f"max-width:{max_width}px;"
+        f"margin-left:auto;"
+        f"margin-right:auto;"
+        f"}}</style>",
+        unsafe_allow_html=True,
+    )
+
+
 def apply_theme() -> None:
     """Inject project CSS overrides on top of .streamlit/config.toml.
 
