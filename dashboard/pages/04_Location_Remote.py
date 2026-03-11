@@ -352,10 +352,8 @@ st_folium(
 # ── Below-map detail ──────────────────────────────────────────────────────────
 section_divider()
 
-col_left, col_right = st.columns([1, 1], gap="large")
-
 # ── Province Breakdown ────────────────────────────────────────────────────────
-with col_left:
+with st.container():
     st.markdown(
         "<h3 style='text-align:center;margin-bottom:8px'>Province Breakdown</h3>",
         unsafe_allow_html=True,
@@ -380,8 +378,10 @@ with col_left:
     table_df.columns = ["Province", "Jobs", "Remote", "Senior+", "Median Salary"]
     st.table(table_df.set_index("Province"))
 
+section_divider()
+
 # ── Top Cities — stacked by seniority ────────────────────────────────────────
-with col_right:
+with st.container():
     st.markdown(
         "<h3 style='text-align:center;margin-bottom:8px'>Top Cities</h3>",
         unsafe_allow_html=True,
@@ -433,7 +433,7 @@ with col_right:
         fig_cities.update_layout(
             paper_bgcolor="#0d1b2a", plot_bgcolor="#102035",
             font=dict(color="#e2eaf4", size=12),
-            margin={"r": 10, "t": 40, "l": 0, "b": 0}, height=360,
+            margin={"r": 10, "t": 40, "l": 0, "b": 0}, height=420,
             xaxis=dict(showgrid=True, gridcolor="#1e3a5f", title="", tickfont=dict(color="#7fa8c9")),
             yaxis=dict(title="", tickfont=dict(color="#e2eaf4")),
         )
