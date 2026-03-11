@@ -105,6 +105,16 @@ CATEGORIES = ["All"] + list(CATEGORY_SKILLS.keys())
 _TEXT    = TEXT
 _SUBTEXT = SUBTEXT
 
+# ── bar chart geometry ────────────────────────────────────────────────────────
+# Centralised here so the chart, the alignment offset, and any future elements
+# all derive from the same values — change one number, everything stays in sync.
+_CHART_PAD_LEFT  = "clamp(8px, 12%, 220px)"   # outer left padding of chart wrapper
+_CHART_PAD_RIGHT = "clamp(8px, 4%, 240px)"    # outer right padding
+_LABEL_W         = 130   # px — skill name column width
+_LABEL_GAP       = 14    # px — padding-right between label and bar
+# Left edge of the bars = outer padding + label column + label gap
+_BAR_START       = f"calc({_CHART_PAD_LEFT} + {_LABEL_W + _LABEL_GAP}px)"
+
 # ── session state (managed automatically by st.radio key below) ───────────────
 
 # ── data ──────────────────────────────────────────────────────────────────────
@@ -184,14 +194,11 @@ if top_n:
     freq_chart = freq_chart.head(top_n)
 
 # ── alignment: all elements share the chart's bar-start left edge ─────────────
-# Bar start = chart outer-left padding + label column (130px) + label gap (14px)
-# This calc() mirrors the clamp() in _make_chart() so everything tracks together.
-_ALIGN_L = "calc(clamp(8px, 12%, 220px) + 144px)"
 st.markdown(
     f"<style>"
-    f".dsj-aligned {{ padding-left: {_ALIGN_L}; }}"
+    f".dsj-aligned {{ padding-left: {_BAR_START}; }}"
     f"[data-testid='stMainBlockContainer'] div[data-testid='stRadio']"
-    f" {{ padding-left: {_ALIGN_L}; margin-bottom: 15px; }}"
+    f" {{ padding-left: {_BAR_START}; margin-bottom: 15px; }}"
     f"</style>",
     unsafe_allow_html=True,
 )
@@ -257,10 +264,10 @@ def _make_chart(plot_df: pd.DataFrame, cat_filter: str) -> str:
     if n == 0:
         return ""
 
-    BAR_H    = 15    # px — bar height
-    ROW_MB   = 1     # px — gap between rows
-    LABEL_W  = 130   # px — skill name column (pushes bars right)
-    PCT_FS   = 15    # px — font size of the % label
+    BAR_H    = 15         # px — bar height
+    ROW_MB   = 1          # px — gap between rows
+    LABEL_W  = _LABEL_W   # px — skill name column (module-level constant)
+    PCT_FS   = 15         # px — font size of the % label
     RADIUS   = "0 7px 7px 0"
     # Outer padding → clamp() in the return statement below
 
@@ -299,10 +306,8 @@ def _make_chart(plot_df: pd.DataFrame, cat_filter: str) -> str:
             f'</div>'
         )
 
-    # Padding: top 4px | right clamps 8px→240px | bottom 4px | left clamps 8px→220px
-    # clamp() keeps the chart centred on large screens and readable on small ones.
     return (
-        '<div style="width:100%;padding:4px clamp(8px,4%,240px) 4px clamp(8px,12%,220px)">'
+        f'<div style="width:100%;padding:4px {_CHART_PAD_RIGHT} 4px {_CHART_PAD_LEFT}">'
         + "".join(rows)
         + "</div>"
     )
