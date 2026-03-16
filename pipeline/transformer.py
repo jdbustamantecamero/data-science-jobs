@@ -13,11 +13,13 @@ from typing import List
 from pipeline.data_cleaner import (
     classify_seniority,
     clean_description,
+    convert_relative_timestamp,
     extract_years_experience,
     infer_location_from_description,
     infer_province_from_city,
     normalize_city,
     normalize_country,
+    normalize_employment_type,
     normalize_province,
     normalize_salary,
 )
@@ -58,7 +60,16 @@ class JobTransformer:
         job["job_description"] = job.get("job_description_raw")
         job["job_apply_link"] = job.get("job_apply_link_raw")
         job["employer_logo"] = job.get("employer_logo_raw")
-        job["posted_at"] = job.get("posted_at_raw")
+        
+        # Handle timestamp conversion: SerpAPI returns relative timestamps like "1 day ago"
+        # which must be converted to absolute ISO 8601 timestamps before database insert
+        posted_at_raw = job.get("posted_at_raw")
+        if posted_at_raw and isinstance(posted_at_raw, str) and "ago" in posted_at_raw.lower():
+            # SerpAPI relative timestamp - convert to ISO 8601
+            job["posted_at"] = convert_relative_timestamp(posted_at_raw)
+        else:
+            # Other providers (JSearch, Adzuna, TheirStack) provide ISO timestamps or None
+            job["posted_at"] = posted_at_raw
 
         # 2. Description Cleaning
         # Strip HTML and normalize whitespace immediately so downstream 
@@ -86,7 +97,11 @@ class JobTransformer:
         job["location_state"] = province
         job["location_country"] = country
 
-        # 4. Salary Normalization
+        # 4. Employment Type Normalization
+        # Standardize employment types across all API sources (FULL_TIME -> Full-time, etc.)
+        job["employment_type"] = normalize_employment_type(job.get("employment_type"))
+
+        # 5. Salary Normalization
         # Standardize pay into annual CAD figures.
         s_min, s_max, s_period = normalize_salary(
             job.get("salary_min"),
@@ -97,14 +112,14 @@ class JobTransformer:
         job["salary_max"] = s_max
         job["salary_period"] = s_period
 
-        # 5. Remote Inference
+        # 6. Remote Inference
         # If the API didn't flag the job as remote, check the text for 'remote/WFH'.
         if not job["is_remote"] and cleaned_desc:
             desc_lower = cleaned_desc.lower()
             if "remote" in desc_lower or "work from home" in desc_lower:
                 job["is_remote"] = True
 
-        # 6. Pipeline Enrichment (Silver-only derived fields)
+        # 7. Pipeline Enrichment (Silver-only derived fields)
         # These fields are entirely computed by the pipeline logic.
         job["skills_tags"] = extract_skills(cleaned_desc)
         job["years_experience_min"] = extract_years_experience(cleaned_desc)

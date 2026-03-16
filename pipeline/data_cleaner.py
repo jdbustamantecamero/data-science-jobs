@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import datetime, timedelta
 from html.parser import HTMLParser
+from zoneinfo import ZoneInfo
 
 
 # ── HTML Cleaning ────────────────────────────────────────────────────────────
@@ -45,9 +47,61 @@ def clean_description(text: str | None) -> str | None:
     return cleaned or None
 
 
-# ── Experience Extraction ──────────────────────────────────────────────────
+# ── Timestamp Conversion ───────────────────────────────────────────────────
 
-# Regex patterns to capture numerical years of experience.
+def convert_relative_timestamp(relative_str: str | None) -> str | None:
+    """
+    Convert a relative timestamp string (e.g. "1 day ago", "3 hours ago") 
+    to an ISO 8601 string in UTC.
+    
+    Used specifically for SerpAPI results which return posted_at as relative time.
+    Assumes the relative time is from now in the Toronto timezone.
+    
+    Args:
+        relative_str: String like "1 day ago", "3 hours ago", "30 minutes ago", etc.
+                     Or None/empty string.
+    
+    Returns:
+        ISO 8601 UTC timestamp string (e.g. "2026-03-15T22:55:00+00:00") or None.
+    """
+    if not relative_str or not isinstance(relative_str, str):
+        return None
+    
+    relative_str = relative_str.strip().lower()
+    
+    # Try to parse patterns like "1 day ago", "3 hours ago", "30 minutes ago"
+    # Also handle singular forms: "1 day ago" vs "2 days ago"
+    match = re.match(r'(\d+)\s+(second|minute|hour|day|week)s?\s+ago', relative_str)
+    if not match:
+        return None
+    
+    quantity = int(match.group(1))
+    unit = match.group(2)
+    
+    # Create a datetime in Toronto timezone
+    toronto_tz = ZoneInfo("America/Toronto")
+    now_toronto = datetime.now(tz=toronto_tz)
+    
+    # Subtract the relative time
+    if unit == "second":
+        past_time = now_toronto - timedelta(seconds=quantity)
+    elif unit == "minute":
+        past_time = now_toronto - timedelta(minutes=quantity)
+    elif unit == "hour":
+        past_time = now_toronto - timedelta(hours=quantity)
+    elif unit == "day":
+        past_time = now_toronto - timedelta(days=quantity)
+    elif unit == "week":
+        past_time = now_toronto - timedelta(weeks=quantity)
+    else:
+        return None
+    
+    # Convert to UTC and return as ISO 8601 string
+    utc_time = past_time.astimezone(ZoneInfo("UTC"))
+    return utc_time.isoformat()
+
+
+
 # Pre-compiled for performance during large batch transformations.
 _YEARS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(\d+)\s*[-–to]+\s*\d+\s+years?\s+(?:of\s+)?(?:relevant\s+|work\s+)?experience", re.I),
@@ -220,7 +274,54 @@ def normalize_country(country: str | None) -> str | None:
     return _COUNTRY_MAP.get(country.strip().lower(), country.strip())
 
 
-# ── City to Province Lookup ──────────────────────────────────────────────────
+# ── Employment Type Normalization ───────────────────────────────────────────
+
+_EMPLOYMENT_TYPE_MAP: dict[str, str] = {
+    # Full-time variations (uppercase, lowercase, with/without hyphen)
+    "full-time": "Full-time",
+    "fulltime": "Full-time",
+    "full_time": "Full-time",
+    "full": "Full-time",
+    "ft": "Full-time",
+    
+    # Part-time variations
+    "part-time": "Part-time",
+    "parttime": "Part-time",
+    "part_time": "Part-time",
+    "part": "Part-time",
+    "pt": "Part-time",
+    
+    # Contract variations
+    "contract": "Contract",
+    "contractor": "Contract",
+    "contract_to_hire": "Contract",
+    "temporary": "Contract",
+    "temp": "Contract",
+    
+    # Internship variations
+    "internship": "Internship",
+    "intern": "Internship",
+    
+    # Other
+    "permanent": "Full-time",
+}
+
+
+def normalize_employment_type(emp_type: str | None) -> str | None:
+    """
+    Normalize employment type strings to canonical forms.
+    Handles various API formats (FULL_TIME, full-time, Full-time, etc.)
+    and maps them to standardized categories: Full-time, Part-time, Contract, Internship.
+    """
+    if not emp_type:
+        return None
+    
+    # Normalize the input: strip whitespace, lowercase, replace common separators
+    normalized = emp_type.strip().lower()
+    
+    # Check the mapping
+    return _EMPLOYMENT_TYPE_MAP.get(normalized, emp_type.strip())
+
 
 _CITY_TO_PROVINCE: dict[str, str] = {
     "toronto": "Ontario", "vancouver": "British Columbia", "calgary": "Alberta",

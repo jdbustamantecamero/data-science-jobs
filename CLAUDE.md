@@ -49,10 +49,10 @@ Bronze raw fields are populated by each provider's `_map_to_job_dict()` method b
 - **Dedup is bulk**: `filter_new_jobs()` in `deduplication.py` issues a single `WHERE job_id = ANY(array)` query. Never replace with per-job queries.
 - **Upsert dedup within batch**: `upsert_jobs()` in `supabase_client.py` dedupes by `job_id` before the upsert call to avoid Supabase error code 21000. Keep this.
 - **FK constraint**: `job_postings.company_domain` references `companies.domain`. Always call `ensure_company_stubs()` before `upsert_jobs()`.
-- **Pipeline step order**: Bronze snapshot → `clean_description` → `extract_years_experience` → `classify_seniority` → `extract_skills` → location normalisation → salary normalisation. Order matters — skills and seniority run on the cleaned description.
+- **Pipeline step order**: Bronze snapshot → `clean_description` → `extract_years_experience` → `classify_seniority` → `extract_skills` → location normalisation → employment type normalisation → salary normalisation. Order matters — skills and seniority run on the cleaned description.
 - **Target country**: Canada. JSearch uses `country="ca"`, Adzuna uses `where="Canada"`, TheirStack uses `job_country_code_or=["CA"]`, SerpAPI uses `location="Canada"` (no `gl` — causes 400).
 - **SerpAPI pagination**: uses `next_page_token` from `serpapi_pagination` — NOT `start` offset (causes 400 on `google_jobs`).
-- **SerpAPI timezone**: `posted_at` computed from relative strings ("3 days ago") using `ZoneInfo("America/Toronto")`. Only SerpAPI needs this.
+- **SerpAPI timezone & timestamps**: SerpAPI returns relative timestamps ("3 days ago", "2 hours ago"). These are converted to absolute ISO 8601 UTC timestamps via `convert_relative_timestamp()` in `data_cleaner.py` using `ZoneInfo("America/Toronto")` as the reference. Only SerpAPI needs this conversion.
 - **Salary currency**: CAD. Both DB column default and pipeline fallback.
 - **Hourly salary conversion**: × 2080 in `JobTransformer`. Original preserved in `salary_min_raw`, `salary_max_raw`, `salary_period_raw`.
 - **SQL schema**: Consolidated into 4 canonical files (`sql/01_schema.sql` → `sql/04_views.sql`). All DDL must be idempotent (`IF NOT EXISTS` / `IF EXISTS`). Apply via Supabase MCP `apply_migration`.
@@ -66,6 +66,14 @@ All handled by `data_cleaner.py` helpers, called by `JobTransformer`:
 - City aliases resolved: "Greater Vancouver" → "Vancouver", etc.
 - Missing province inferred from city lookup (`_CITY_TO_PROVINCE`)
 - Missing city/province inferred from description via "City, AB" pattern scan
+
+## Employment type normalisation rules
+
+All handled by `normalize_employment_type()` in `data_cleaner.py`, called by `JobTransformer`:
+- Standardizes across API providers: `FULL_TIME` → `"Full-time"`, `full-time` → `"Full-time"`, `fulltime` → `"Full-time"`
+- Canonical categories: `"Full-time"`, `"Part-time"`, `"Contract"`, `"Internship"`
+- Maps common variations: `FT` → `"Full-time"`, `PT` → `"Part-time"`, `permanent` → `"Full-time"`, `temp` → `"Contract"`
+- Prevents duplicate/inconsistent employment type categories in dashboards
 
 ## File structure quick reference
 
@@ -88,7 +96,7 @@ dashboard/utils.py                All Supabase reads for dashboard; add loaders 
 dashboard/ui_components.py        Design system — colour constants, apply_theme(), helpers
 dashboard/view_template.py        Annotated starter template — copy when adding a new page
 dashboard/pages/04_Location_Remote.py  Folium choropleth + city dot density — 4 metrics
-dashboard/pages/05_Skills.py      Skills explorer; SKILL_CATEGORIES must sync with skills_parser.SKILLS
+dashboard/pages/05_Skills.py      Skills explorer; Timeframe + Province + Seniority filters; SKILL_CATEGORIES must sync with skills_parser.SKILLS
 notebooks/01_bronze_quality.ipynb API field mapping & Bronze layer QA
 notebooks/02_silver_insights.ipynb Market trends & salary visualisation
 sql/01_schema.sql                 Tables: job_postings, companies, pipeline_runs

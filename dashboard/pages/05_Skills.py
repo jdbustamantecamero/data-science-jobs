@@ -145,6 +145,17 @@ with st.sidebar:
         provinces += sorted(jobs_df["location_state"].dropna().unique().tolist())
     province_filter = st.selectbox("Province", provinces)
 
+    st.markdown("---")
+    seniority_levels = ["All Levels"]
+    if "seniority" in jobs_df.columns:
+        seniority_order = ["Intern", "Junior", "Mid", "Senior", "Lead", "Director+"]
+        available = sorted(
+            jobs_df["seniority"].dropna().unique().tolist(),
+            key=lambda x: seniority_order.index(x) if x in seniority_order else len(seniority_order)
+        )
+        seniority_levels += available
+    seniority_filter = st.selectbox("Seniority", seniority_levels)
+
 # ── apply sidebar filters ─────────────────────────────────────────────────────
 filtered = jobs_df.copy()
 now_utc = pd.Timestamp.now(tz="UTC")
@@ -156,6 +167,8 @@ elif timeframe == "YTD 2026":
     filtered = filtered[filtered["posted_at"] >= pd.Timestamp("2026-01-01", tz="UTC")]
 if province_filter != "All Provinces":
     filtered = filtered[filtered["location_state"] == province_filter]
+if seniority_filter != "All Levels":
+    filtered = filtered[filtered["seniority"] == seniority_filter]
 
 total_jobs = len(filtered)
 
@@ -207,6 +220,8 @@ st.markdown(
 label_parts = []
 if province_filter != "All Provinces":
     label_parts.append(province_filter)
+if seniority_filter != "All Levels":
+    label_parts.append(seniority_filter)
 label_parts.append(timeframe)
 st.markdown(
     f"<div class='dsj-aligned'>"
