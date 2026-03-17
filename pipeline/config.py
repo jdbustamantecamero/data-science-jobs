@@ -29,3 +29,4 @@ ADZUNA_BASE_URL = "https://api.adzuna.com/v1/api/jobs"
 THEIRSTACK_BASE_URL = "https://api.theirstack.com/v1"
 
 SERPAPI_BASE_URL = "https://serpapi.com/search"
+SERPAPI_ACCOUNT_URL = "https://serpapi.com/account"

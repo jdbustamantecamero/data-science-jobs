@@ -36,7 +36,7 @@ class AdzunaProvider(BaseJobSource):
                     "what": query,
                     "where": "Canada",
                     "sort_by": "date",
-                    "max_days_old": "7",
+                    "max_days_old": "15",
                 }
                 url = f"{ADZUNA_BASE_URL}/{country}/search/{page}"
                 logger.info("Fetching %s page %d for '%s'", self.name, page, query)

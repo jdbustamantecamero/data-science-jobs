@@ -24,11 +24,12 @@ class JSearchProvider(BaseJobSource):
     def fetch_jobs(
         self,
         query: str = "Data Scientist",
-        max_pages: int = 5,
+        max_pages: int = 10,
         **kwargs: Any,
     ) -> List[JobDict]:
         country = kwargs.get("country", "ca")
         jobs: List[JobDict] = []
+        last_resp = None
 
         with httpx.Client(timeout=30) as client:
             for page in range(1, max_pages + 1):
@@ -37,7 +38,7 @@ class JSearchProvider(BaseJobSource):
                     "page": str(page),
                     "num_pages": "1",
                     "country": country,
-                    "date_posted": "week",
+                    "date_posted": "month",
                 }
                 logger.info("Fetching %s page %d for '%s'", self.name, page, query)
                 resp = client.get(
@@ -46,19 +47,38 @@ class JSearchProvider(BaseJobSource):
                     params=params,
                 )
                 resp.raise_for_status()
+                last_resp = resp
                 data = resp.json()
                 raw_results = data.get("data", [])
-                
+
                 if not raw_results:
                     logger.info("No more results on page %d for %s.", page, self.name)
                     break
 
                 for raw in raw_results:
                     jobs.append(self._map_to_job_dict(raw))
-                
+
                 logger.info("%s page %d: %d jobs fetched", self.name, page, len(raw_results))
 
+        if last_resp is not None:
+            self._log_credits(last_resp.headers)
+
         return jobs
+
+    def _log_credits(self, headers: Any) -> None:
+        try:
+            remaining = int(headers.get("x-ratelimit-requests-remaining", -1))
+            limit = int(headers.get("x-ratelimit-requests-limit", -1))
+            if remaining >= 0:
+                pct = round(remaining / limit * 100) if limit > 0 else "?"
+                level = "WARNING" if remaining < 40 else "INFO"
+                logger.log(
+                    logging.WARNING if remaining < 40 else logging.INFO,
+                    "%s credits: %d / %d remaining (%s%%)",
+                    self.name, remaining, limit, pct,
+                )
+        except (ValueError, TypeError):
+            pass
 
     def _map_to_job_dict(self, raw: dict[str, Any]) -> JobDict:
         """Map raw API response to Bronze (_raw) fields."""

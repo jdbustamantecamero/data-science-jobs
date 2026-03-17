@@ -39,7 +39,7 @@ class TheirStackProvider(BaseJobSource):
                     "order_by": [{"desc": True, "field": "date_posted"}],
                     "job_title_or": [query],
                     "job_country_code_or": [country_code],
-                    "posted_at_max_age_days": 7,
+                    "posted_at_max_age_days": 15,
                 }
                 logger.info("Fetching %s page %d for '%s'", self.name, page, query)
                 resp = client.post(

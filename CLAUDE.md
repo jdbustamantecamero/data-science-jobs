@@ -51,6 +51,10 @@ Bronze raw fields are populated by each provider's `_map_to_job_dict()` method b
 - **FK constraint**: `job_postings.company_domain` references `companies.domain`. Always call `ensure_company_stubs()` before `upsert_jobs()`.
 - **Pipeline step order**: Bronze snapshot → `clean_description` → `extract_years_experience` → `classify_seniority` → `extract_skills` → location normalisation → employment type normalisation → salary normalisation. Order matters — skills and seniority run on the cleaned description.
 - **Target country**: Canada. JSearch uses `country="ca"`, Adzuna uses `where="Canada"`, TheirStack uses `job_country_code_or=["CA"]`, SerpAPI uses `location="Canada"` (no `gl` — causes 400).
+- **Fetch window**: Adzuna and TheirStack use 15 days (`max_days_old=15`, `posted_at_max_age_days=15`). JSearch uses `date_posted="month"` (no 15-day enum exists). SerpAPI has no date filter.
+- **Pagination depth**: `max_pages=10` for all providers (default in `JobPipeline`). Providers stop early if results are exhausted.
+- **Credit monitoring**: JSearch logs remaining credits from response headers after each run (warns if < 40). SerpAPI calls `/account` after each run to log `plan_searches_left` (warns if < 50). Adzuna and TheirStack do not expose credits via API.
+- **SerpAPI free plan cap**: 250 searches/month. At 10 pages/run × 4 runs/month = 160 searches minimum. Manual runs consume the buffer — watch this.
 - **SerpAPI pagination**: uses `next_page_token` from `serpapi_pagination` — NOT `start` offset (causes 400 on `google_jobs`).
 - **SerpAPI timezone & timestamps**: SerpAPI returns relative timestamps ("3 days ago", "2 hours ago"). These are converted to absolute ISO 8601 UTC timestamps via `convert_relative_timestamp()` in `data_cleaner.py` using `ZoneInfo("America/Toronto")` as the reference. Only SerpAPI needs this conversion.
 - **Salary currency**: CAD. Both DB column default and pipeline fallback.

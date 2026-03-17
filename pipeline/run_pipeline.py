@@ -48,7 +48,7 @@ class JobPipeline:
     of data across the Bronze, Silver, and Gold stages.
     """
 
-    def __init__(self, query: str = "Data Scientist", max_pages: int = 5) -> None:
+    def __init__(self, query: str = "Data Scientist", max_pages: int = 10) -> None:
         """
         Initialize the pipeline with search parameters and providers.
         """

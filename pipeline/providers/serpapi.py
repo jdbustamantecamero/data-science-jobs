@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Tuple
 
 import httpx
 
-from pipeline.config import SERPAPI_API_KEY, SERPAPI_BASE_URL
+from pipeline.config import SERPAPI_API_KEY, SERPAPI_BASE_URL, SERPAPI_ACCOUNT_URL
 from pipeline.models import JobDict
 from pipeline.providers.base import BaseJobSource
 
@@ -60,7 +60,26 @@ class SerpAPIProvider(BaseJobSource):
                 if not next_page_token:
                     break
 
+        self._log_credits()
         return jobs
+
+    def _log_credits(self) -> None:
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(SERPAPI_ACCOUNT_URL, params={"api_key": SERPAPI_API_KEY})
+                resp.raise_for_status()
+                data = resp.json()
+            remaining = data.get("plan_searches_left")
+            used = data.get("this_month_usage")
+            plan = data.get("plan_name", "unknown")
+            if remaining is not None:
+                logger.log(
+                    logging.WARNING if remaining < 50 else logging.INFO,
+                    "%s credits: %s remaining this month (used %s) — plan: %s",
+                    self.name, remaining, used, plan,
+                )
+        except Exception as exc:
+            logger.warning("%s: could not fetch credit info — %s", self.name, exc)
 
     def _parse_location(self, location_str: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         if not location_str:

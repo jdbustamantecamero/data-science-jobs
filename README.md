@@ -35,7 +35,7 @@ Raw API Data         Cleaned & Enriched      Aggregated Views
 | [JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) | RapidAPI key | 200 req/month | Provides employer website → domain |
 | [Adzuna](https://developer.adzuna.com) | App ID + App Key | 1,000 req/month | Remote inferred from text |
 | [TheirStack](https://theirstack.com) | Bearer token | Varies | POST API; provides company URL and logo |
-| [SerpAPI](https://serpapi.com) | API key | 100 searches/month | Google Jobs; salary/location parsed from strings; posted_at from relative time (EST) |
+| [SerpAPI](https://serpapi.com) | API key | 250 searches/month | Google Jobs; salary/location parsed from strings; posted_at from relative time (EST) |
 
 ## Setup
 
@@ -170,6 +170,9 @@ DataScienceJobs/
 | Bulk dedup via `ANY(array)` | One query per batch; also dedupes within-batch to avoid Supabase error 21000 |
 | `company_domain` as FK | Normalised from employer URL; more stable than company name |
 | Hourly → annual salary conversion | × 2080; original preserved in `_raw` columns |
+| Fetch window: 15 days (Adzuna/TheirStack), month (JSearch), no filter (SerpAPI) | Wider window catches postings missed by a failed run; JSearch has no 15-day enum so `month` is the next option |
+| `max_pages=10` per provider | Deeper pagination increases job yield; providers stop early when results are exhausted |
+| Credit monitoring in providers | JSearch reads `x-ratelimit-requests-remaining` headers; SerpAPI calls `/account` — both log a WARNING when credits run low. Adzuna and TheirStack don't expose credits via API. |
 | Anon key in dashboard | Read-only even if Streamlit secrets leak; service key stays in GitHub Actions only |
 | `.streamlit/config.toml` for theme | Native Streamlit theming — no CSS injection needed for base palette |
 | `ui_components.py` design system | Single source of truth for colours and layout helpers; pages never write raw CSS |
